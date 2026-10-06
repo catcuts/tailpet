@@ -1,0 +1,21 @@
+{
+  "server": {
+    "host": "S的公网IP",
+    "user": "administrator",
+    "wsl_distro": "Ubuntu"
+  },
+  "domain": "yourname.duckdns.org",
+  "duckdns_token": "DuckDNS的token",
+  "le_email": "用于Let's Encrypt注册的邮箱",
+  "control_port": 8443,
+  "headscale_user": "ops",
+  "b": {
+    "ssh_user": "user",
+    "tailscale_ip": "100.64.0.2"
+  },
+  "a": {
+    "ssh_key": "C:\\Users\\YOU\\.ssh\\id_ed25519_tailpet",
+    "tailscale_exe": "C:\\Program Files\\Tailscale\\tailscale.exe"
+  },
+  "acl": true
+}

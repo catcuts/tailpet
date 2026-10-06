@@ -1,0 +1,100 @@
+# B-node tailnet manager - rendered by deploy.py gen-b (ASCII-only + BOM, PS5.1 safe)
+# Usage (Administrator PowerShell):
+#   powershell -ExecutionPolicy Bypass -File b_tailnet_manager.ps1 setup    # full bootstrap (= old b_setup.ps1)
+#   powershell -ExecutionPolicy Bypass -File b_tailnet_manager.ps1 join     # join tailnet (embedded key, or -Key <authkey>; -Hostname <name> 自定义名称)
+#   powershell -ExecutionPolicy Bypass -File b_tailnet_manager.ps1 quit     # leave tailnet (logout)
+#   powershell -ExecutionPolicy Bypass -File b_tailnet_manager.ps1 status   # tailscale + sshd state
+#   powershell -ExecutionPolicy Bypass -File b_tailnet_manager.ps1 doctor   # full health check
+
+param([string]$Action = 'status', [string]$Key = '', [string]$Hostname = '')
+
+$ErrorActionPreference = 'Continue'
+$TS_EXE       = "$env:ProgramFiles\Tailscale\tailscale.exe"
+$SERVER       = 'https://{{DOMAIN}}:{{CONTROL_PORT}}'
+$EMBEDDED_KEY = '{{AUTHKEY}}'
+$A_PUB        = '{{A_PUBKEY}}'
+
+function Do-Setup {
+    if (-not (Test-Path $TS_EXE)) {
+        Write-Output "[0] Tailscale not found, installing silently..."
+        $msi = "$env:TEMP\tailscale-setup.msi"
+        Invoke-WebRequest -UseBasicParsing -Uri "https://pkgs.tailscale.com/stable/tailscale-setup-1.102.4-amd64.msi" -OutFile $msi
+        $p = Start-Process msiexec.exe -ArgumentList "/i `"$msi`" /qn /norestart" -Wait -PassThru
+        Write-Output ("    msiexec exit code: " + $p.ExitCode + " (3010 = reboot required)")
+        Start-Sleep 5
+        if (-not (Test-Path $TS_EXE)) { Write-Output "!! Tailscale install FAILED. Install manually then re-run."; return }
+    }
+    Write-Output "[1] joining control plane..."
+    Do-Join
+    Write-Output "[2] installing OpenSSH Server..."
+    $cap = Get-WindowsCapability -Online -Name 'OpenSSH.Server*' -ErrorAction SilentlyContinue
+    if ($cap -and $cap.State -ne 'Installed') { Add-WindowsCapability -Online -Name $cap.Name | Out-Null }
+    if ((Get-Service sshd -ErrorAction SilentlyContinue) -eq $null) {
+        Write-Output "!! FoD install failed: download Win32-OpenSSH zip, run install-sshd.ps1, then re-run"
+    } else {
+        Set-Service sshd -StartupType Automatic
+        Start-Service sshd
+    }
+    Write-Output "[3] authorizing admin machine pubkey..."
+    Set-Content -Path C:\ProgramData\ssh\administrators_authorized_keys -Value $A_PUB -Encoding ascii
+    icacls C:\ProgramData\ssh\administrators_authorized_keys /inheritance:r /grant "Administrators:F" /grant "SYSTEM:F" | Out-Null
+    Write-Output "[4] tightening port 22 to tailnet range..."
+    Get-NetFirewallRule -Direction Inbound -ErrorAction SilentlyContinue |
+      Where-Object { $_.DisplayName -like '*OpenSSH*' } |
+      Set-NetFirewallRule -RemoteAddress 100.64.0.0/10
+    Write-Output "[5] report:"
+    Do-Status
+}
+
+function Do-Join {
+    if (-not (Test-Path $TS_EXE)) { Write-Output "!! Tailscale not installed (run setup first)"; return }
+    if (-not $Key) { $Key = $EMBEDDED_KEY }
+    $joinArgs = @('up', "--login-server=$SERVER", "--authkey=$Key", '--unattended', '--force-reauth')
+    if ($Hostname) { $joinArgs += "--hostname=$Hostname" }
+    & $TS_EXE @joinArgs
+    Write-Output ("    tailscale ip: " + (& $TS_EXE ip -4))
+}
+
+function Do-Quit {
+    if (-not (Test-Path $TS_EXE)) { Write-Output "!! Tailscale not installed"; return }
+    & $TS_EXE logout
+    Write-Output "Logged out. Note: the node record REMAINS on the control server (shown offline)"
+    Write-Output "until an admin removes it:  a_tailnet_manager.ps1 remove <nodeID>"
+}
+
+function Do-Status {
+    if (Test-Path $TS_EXE) {
+        Write-Output ("tailscale ip: " + (& $TS_EXE ip -4 2>$null))
+        & $TS_EXE status
+    } else { Write-Output "!! Tailscale not installed" }
+    $sshd = Get-Service sshd -ErrorAction SilentlyContinue
+    Write-Output ("sshd: " + $(if ($sshd) { $sshd.Status } else { "not installed" }))
+}
+
+function Do-Doctor {
+    Write-Output "=== doctor ==="
+    $ok = $true
+    if (Test-Path $TS_EXE) { Write-Output "[PASS] tailscale.exe exists" } else { Write-Output "[FAIL] tailscale.exe missing"; $ok = $false }
+    $svc = Get-Service Tailscale -ErrorAction SilentlyContinue
+    if ($svc -and $svc.Status -eq 'Running') { Write-Output "[PASS] Tailscale service running" } else { Write-Output "[FAIL] Tailscale service not running"; $ok = $false }
+    $prefs = & $TS_EXE debug prefs 2>$null | Select-String 'ControlURL'
+    if ($prefs -match [regex]::Escape($SERVER)) { Write-Output "[PASS] ControlURL = $SERVER" } else { Write-Output "[FAIL] ControlURL mismatch: $prefs"; $ok = $false }
+    $st = & $TS_EXE status 2>$null
+    if ($st -match 'logged out') { Write-Output "[FAIL] logged out (run join)"; $ok = $false } else { Write-Output "[PASS] logged in" }
+    $sshd = Get-Service sshd -ErrorAction SilentlyContinue
+    if ($sshd -and $sshd.Status -eq 'Running') { Write-Output "[PASS] sshd running" } else { Write-Output "[FAIL] sshd not running"; $ok = $false }
+    $fw = Get-NetFirewallRule -Direction Inbound -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like '*OpenSSH*' } | Get-NetFirewallAddressFilter
+    if (($fw.RemoteAddress -join ',') -match '100\.64') { Write-Output "[PASS] port 22 scoped to tailnet" } else { Write-Output "[WARN] port 22 rule scope not verified" }
+    $ak = Get-Content C:\ProgramData\ssh\administrators_authorized_keys -ErrorAction SilentlyContinue
+    if ($ak -and $ak.Contains(($A_PUB.Split(' ')[1]).Substring(0,30))) { Write-Output "[PASS] admin pubkey authorized" } else { Write-Output "[FAIL] admin pubkey missing"; $ok = $false }
+    Write-Output $(if ($ok) { "doctor: ALL PASS" } else { "doctor: ISSUES FOUND" })
+}
+
+switch ($Action.ToLower()) {
+    'setup' { Do-Setup }
+    'join'  { Do-Join }
+    'quit'  { Do-Quit }
+    'status'{ Do-Status }
+    'doctor'{ Do-Doctor }
+    default { Write-Output "Usage: b_tailnet_manager.ps1 <setup|join|quit|status|doctor> [-Key <authkey>]" }
+}

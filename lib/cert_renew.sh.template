@@ -1,0 +1,19 @@
+#!/bin/bash
+# 证书续期（由 deploy.py setup-s 渲染后部署到 S：/mnt/c/headscale-certs/cert_renew.sh）
+# 模板变量：{{DOMAIN}} {{DUCKDNS_TOKEN}}
+export DuckDNS_Token="{{DUCKDNS_TOKEN}}"
+LOG=/var/log/cert-renew.log
+echo "===== $(date -u '+%F %T') renew check =====" >> $LOG
+BEFORE=$(openssl x509 -in /mnt/c/headscale-certs/certificates/{{DOMAIN}}.crt -noout -enddate 2>/dev/null)
+/root/.acme.sh/acme.sh --cron --home /root/.acme.sh >> $LOG 2>&1
+AFTER=$(openssl x509 -in /mnt/c/headscale-certs/certificates/{{DOMAIN}}.crt -noout -enddate 2>/dev/null)
+echo "before: $BEFORE" >> $LOG
+echo "after : $AFTER" >> $LOG
+if [ "$BEFORE" != "$AFTER" ]; then
+    echo "cert changed -> restarting headscale" >> $LOG
+    pkill -x headscale
+    sleep 2
+    nohup headscale serve --config /etc/headscale/config.yaml >> /var/log/headscale.log 2>&1 &
+    sleep 3
+    pgrep -a headscale >> $LOG
+fi

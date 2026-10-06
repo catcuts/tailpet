@@ -1,0 +1,67 @@
+# S-Setup.ps1 - S bootstrap payload (rendered by: tailpet make-s-zip)
+# Idempotent: safe to double-click START-S.bat multiple times.
+# Steps: OpenSSH(offline zip) -> A pubkey -> firewall -> WSL1 feature -> Ubuntu rootfs import -> headscale binary
+# NOTE: rendered placeholder {{A_PUBKEY}} is replaced with A's management public key.
+$ErrorActionPreference = 'Continue'
+$here = Split-Path -Parent $MyInvocation.MyCommand.Path
+$A_PUB = '{{A_PUBKEY}}'
+
+Write-Output '[1/6] OpenSSH Server (offline zip)...'
+if (-not (Get-Service sshd -ErrorAction SilentlyContinue)) {
+    $sshDir = Join-Path $env:ProgramFiles 'OpenSSH-Win64'
+    if (-not (Test-Path "$sshDir\install-sshd.ps1")) {
+        Expand-Archive -Path (Join-Path $here 'OpenSSH-Win64.zip') -DestinationPath $env:ProgramFiles -Force
+    }
+    & "$sshDir\install-sshd.ps1" | Out-Null
+    Set-Service sshd -StartupType Automatic
+    Start-Service sshd
+}
+Write-Output ('      sshd: ' + (Get-Service sshd -ErrorAction SilentlyContinue).Status)
+
+Write-Output '[2/6] Authorizing A management pubkey...'
+$ak = "$env:ProgramData\ssh\administrators_authorized_keys"
+$cur = if (Test-Path $ak) { Get-Content $ak -Raw } else { '' }
+if ($cur -notlike "*$($A_PUB.Split(' ')[1])*") {
+    Add-Content -Path $ak -Value $A_PUB -Encoding ascii
+}
+icacls $ak /inheritance:r /grant "Administrators:F" /grant "SYSTEM:F" | Out-Null
+Write-Output '      done'
+
+Write-Output '[3/6] Firewall for sshd...'
+$fw = Get-NetFirewallRule -DisplayName 'OpenSSH-Server-In-TCP' -ErrorAction SilentlyContinue
+if (-not $fw) {
+    New-NetFirewallRule -DisplayName 'OpenSSH-Server-In-TCP' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 22 | Out-Null
+    Write-Output '      rule created (scope: any - limit source in cloud SG)'
+} else { Write-Output '      rule exists' }
+
+Write-Output '[4/6] WSL1 feature...'
+$wslState = (Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Windows-Subsystem-Linux -ErrorAction SilentlyContinue).State
+if ($wslState -ne 'Enabled') {
+    Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Windows-Subsystem-Linux -NoRestart | Out-Null
+    Write-Output ''
+    Write-Output '      *** WSL feature enabled. REBOOT S NOW, then double-click START-S.bat again. ***'
+    exit 0
+}
+Write-Output '      enabled'
+
+Write-Output '[5/6] Importing Ubuntu rootfs (WSL1)...'
+$list = wsl -l -q 2>$null | Out-String
+if ($list -notmatch 'Ubuntu') {
+    New-Item -ItemType Directory -Force -Path C:\tailnet-wsl | Out-Null
+    wsl --import Ubuntu C:\tailnet-wsl (Join-Path $here 'ubuntu-rootfs.tar.gz') --version 1
+    Write-Output '      imported'
+} else { Write-Output '      distro Ubuntu present' }
+
+Write-Output '[6/6] Placing headscale binary into WSL...'
+$bin = wsl -d Ubuntu -u root -- ls /usr/local/bin/headscale 2>$null
+if (-not $bin) {
+    $tar = Join-Path $env:TEMP 'headscale.tgz'
+    Copy-Item (Join-Path $here 'headscale_linux_amd64.tar.gz') $tar -Force
+    $winPath = $tar -replace '\\', '/'
+    $wslPath = '/mnt/' + $winPath.Substring(0, 1).ToLower() + $winPath.Substring(2)
+    wsl -d Ubuntu -u root -- bash -c "tar -xzf $wslPath -C /tmp && install -m755 /tmp/headscale_*/headscale /usr/local/bin/headscale && headscale version | head -1"
+} else { Write-Output '      already installed' }
+
+Write-Output ''
+Write-Output '==== S bootstrap COMPLETE ===='
+Write-Output 'Next (on A):  tailpet bootstrap-s   then   tailpet setup-s'

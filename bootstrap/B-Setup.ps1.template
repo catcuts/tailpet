@@ -1,0 +1,87 @@
+# B-Setup.ps1 - B bootstrap payload (rendered by: tailpet gen-b --zip)
+# Idempotent + expiry-guarded. Rendered placeholders:
+#   {{SERVER}} https://<domain>:<port>   {{AUTHKEY}} hskey-...   {{EXPIRES}} yyyy-MM-dd HH:mm   {{A_PUBKEY}} ssh-ed25519 ...
+$ErrorActionPreference = 'Continue'
+$here = Split-Path -Parent $MyInvocation.MyCommand.Path
+$SERVER  = '{{SERVER}}'
+$AUTHKEY = '{{AUTHKEY}}'
+$EXPIRES = '{{EXPIRES}}'
+$A_PUB   = '{{A_PUBKEY}}'
+
+# ---- [0/6] pre-flight: key expiry (fast-fail before touching anything) ----
+Write-Output '[0/6] Checking enrollment key validity...'
+$exp = [DateTime]::ParseExact($EXPIRES, 'yyyy-MM-dd HH:mm', $null)
+if ((Get-Date) -gt $exp) {
+    Write-Output ('      KEY EXPIRED at ' + $EXPIRES + ' (this machine now: ' + (Get-Date -Format 'yyyy-MM-dd HH:mm') + ')')
+    Write-Output '      Nothing was installed. On A run:  tailpet gen-b --zip'
+    Write-Output '      then copy the new zip here and double-click START-B.bat again.'
+    exit 1
+}
+Write-Output ('      key valid until ' + $EXPIRES)
+
+# ---- [1/6] Tailscale client (offline msi) ----
+Write-Output '[1/6] Tailscale client...'
+$TS_EXE = "$env:ProgramFiles\Tailscale\tailscale.exe"
+if (-not (Test-Path $TS_EXE)) {
+    $msi = Get-ChildItem $here -Filter '*.msi' | Select-Object -First 1
+    if ($msi) {
+        $p = Start-Process msiexec.exe -ArgumentList "/i `"$($msi.FullName)`" /qn /norestart" -Wait -PassThru
+        Write-Output ('      msiexec exit: ' + $p.ExitCode + ' (3010 = reboot suggested)')
+        for ($i = 0; $i -lt 12 -and -not (Test-Path $TS_EXE); $i++) { Start-Sleep 5 }
+    } else { Write-Output '      !! no msi found in package'; }
+}
+if (Test-Path $TS_EXE) { Write-Output '      ok' } else { Write-Output '      !! Tailscale not ready'; exit 1 }
+
+# ---- [2/6] join tailnet ----
+Write-Output '[2/6] Joining tailnet...'
+$hn = $env:COMPUTERNAME.ToLower()
+& $TS_EXE up --login-server=$SERVER --authkey=$AUTHKEY --hostname=$hn --unattended --force-reauth 2>&1 | Out-Null
+Start-Sleep 4
+$ip = & $TS_EXE ip -4 2>$null
+$st = & $TS_EXE status 2>$null | Out-String
+if (-not $ip -or $st -match 'logged out') {
+    Write-Output '      !! JOIN FAILED'
+    Write-Output ('      status: ' + $st.Trim().Split("`n")[0])
+    Write-Output '      - authkey invalid/expired  -> on A: tailpet gen-b --zip, redo with new package'
+    Write-Output '      - cannot reach S           -> check this machine has internet and SG opens 8443'
+    exit 1
+}
+Write-Output ('      joined, tailscale ip: ' + $ip)
+
+# ---- [3/6] OpenSSH Server (offline zip) ----
+Write-Output '[3/6] OpenSSH Server...'
+if (-not (Get-Service sshd -ErrorAction SilentlyContinue)) {
+    $sshDir = Join-Path $env:ProgramFiles 'OpenSSH-Win64'
+    if (-not (Test-Path "$sshDir\install-sshd.ps1")) {
+        Expand-Archive -Path (Join-Path $here 'OpenSSH-Win64.zip') -DestinationPath $env:ProgramFiles -Force
+    }
+    & "$sshDir\install-sshd.ps1" | Out-Null
+    Set-Service sshd -StartupType Automatic
+    Start-Service sshd
+}
+Write-Output ('      sshd: ' + (Get-Service sshd -ErrorAction SilentlyContinue).Status)
+
+# ---- [4/6] A pubkey ----
+Write-Output '[4/6] Authorizing A management pubkey...'
+$ak = "$env:ProgramData\ssh\administrators_authorized_keys"
+$cur = if (Test-Path $ak) { Get-Content $ak -Raw } else { '' }
+if ($cur -notlike "*$($A_PUB.Split(' ')[1])*") {
+    Add-Content -Path $ak -Value $A_PUB -Encoding ascii
+}
+icacls $ak /inheritance:r /grant "Administrators:F" /grant "SYSTEM:F" | Out-Null
+Write-Output '      done'
+
+# ---- [5/6] firewall: 22 only from tailnet ----
+Write-Output '[5/6] Tightening port 22 to tailnet range...'
+Get-NetFirewallRule -DisplayName 'OpenSSH*' -ErrorAction SilentlyContinue |
+  Where-Object { $_.Direction -eq 'Inbound' } | Set-NetFirewallRule -RemoteAddress 100.64.0.0/10
+Write-Output '      done'
+
+# ---- [6/6] report ----
+Write-Output '[6/6] Report:'
+hostname
+whoami
+Write-Output ('sshd: ' + (Get-Service sshd).Status)
+& $TS_EXE status
+Write-Output ''
+Write-Output '==== B bootstrap COMPLETE - manage me from A:  tailpet ssh ===='
