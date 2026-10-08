@@ -124,6 +124,10 @@ tailpet remove <ID>  # 从控制面除名节点
 
 **不进交互 shell、只跑一条命令**：`tailpet ssh <节点> "命令"`——底层即 ssh_helper 引擎（PS 目标自动 EncodedCommand，引号/管道/中文免疫；UTF-8→GBK 双回退解码；超时与退出码透传）。独立工具仍在 `lib/ssh_helper.py`。
 
+**跳板访问同网段、无公网的机器（C 类）**
+
+C 够不着 S，进不了 tailnet——也无需进入。START-B.bat 在 B 上完成接入时会**自动生成** `C-Bootstrap.zip`（B 包同目录，内嵌 B 公钥的离线 sshd 安装包）。拷到 C 解压、双击 `START-LAN-SSH.bat` 即完成；此后在 B 上 `ssh user@C的IP` 免密直达（A 侧 `tailpet ssh` 进 B 再跳一次）。B 的密钥为默认名 `id_ed25519`，ssh 自动使用、零配置。注意：C 的登录账户需设有 Windows 密码（系统策略禁止空密码账户网络登录）；该 sshd 仅放行本网段（LocalSubnet）。密钥轮换或包丢失时在 B 上重跑 `tailpet-b.ps1 make-c-zip`。
+
 设备退出的完整语义是两步：B 侧 `quit`（logout，立即失联）+ A 侧 `remove <ID>`（控制面除名）。只 quit 不 remove，节点会一直挂在列表里。
 
 以上是"怎么用"。往下是"为什么这样设计"——理解它们，你才知道哪些环节可以动、哪些是雷。

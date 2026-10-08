@@ -436,6 +436,8 @@ def cmd_gen_b():
         with zipfile.ZipFile(zpath, 'w', zipfile.ZIP_DEFLATED) as z:
             z.write(os.path.join(HERE, 'bootstrap', 'START-B.bat'), 'START-B.bat')
             z.writestr('B-Setup.ps1', bsetup)
+            z.write(os.path.join(HERE, 'bootstrap', 'START-LAN-SSH.bat'), 'START-LAN-SSH.bat')
+            z.write(os.path.join(HERE, 'bootstrap', 'LAN-SSH-Setup.ps1.template'), 'LAN-SSH-Setup.ps1.template')
             for n in need:
                 z.write(os.path.join(CACHE, n), n)
             z.write(path, 'tailpet-b.ps1')

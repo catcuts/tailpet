@@ -9,6 +9,7 @@
 param([string]$Action = 'status', [string]$Key = '', [string]$Hostname = '')
 
 $ErrorActionPreference = 'Continue'
+$scriptDir    = Split-Path -Parent $MyInvocation.MyCommand.Path
 $TS_EXE       = "$env:ProgramFiles\Tailscale\tailscale.exe"
 $SERVER       = 'https://{{DOMAIN}}:{{CONTROL_PORT}}'
 $EMBEDDED_KEY = '{{AUTHKEY}}'
@@ -90,11 +91,51 @@ function Do-Doctor {
     Write-Output $(if ($ok) { "doctor: ALL PASS" } else { "doctor: ISSUES FOUND" })
 }
 
+
+function Do-MakeCZip {
+    # Generate C-Bootstrap.zip (offline sshd pkg for LAN-only machines) in this script's folder
+    $here = $scriptDir
+    $sshDir = Join-Path $env:USERPROFILE '.ssh'
+    New-Item -ItemType Directory -Force -Path $sshDir | Out-Null
+    $kgen = 'ssh-keygen'
+    if (-not (Get-Command $kgen -ErrorAction SilentlyContinue)) {
+        foreach ($d in (Get-ChildItem "$env:ProgramFiles\OpenSSH*" -Directory -ErrorAction SilentlyContinue)) {
+            if (Test-Path (Join-Path $d.FullName 'ssh-keygen.exe')) { $kgen = Join-Path $d.FullName 'ssh-keygen.exe'; break }
+        }
+    }
+    if (-not (Get-Command $kgen -ErrorAction SilentlyContinue) -and -not (Test-Path $kgen)) { Write-Output '!! ssh-keygen not found'; return }
+    $key = Join-Path $sshDir 'id_ed25519'
+    if (Test-Path "$key.pub") {
+        Write-Output '[c-zip] key exists (default name id_ed25519 - ssh uses it automatically)'
+    } else {
+        # PS drops empty -N args (known pitfall) and piping Enter deadlocks under nested ssh:
+        # go through cmd.exe which passes -N "" verbatim
+        $cmdLine = 'ssh-keygen -t ed25519 -f "' + $key + '" -N "" -C ' + $env:COMPUTERNAME + '-lan'
+        if ($kgen -ne 'ssh-keygen') { $cmdLine = '"' + $kgen + '" -t ed25519 -f "' + $key + '" -N "" -C ' + $env:COMPUTERNAME + '-lan' }
+        cmd /c $cmdLine 2>$null | Out-Null
+        if (-not (Test-Path "$key.pub")) { Write-Output '!! key generation failed'; return }
+        Write-Output '[c-zip] generated ~/.ssh/id_ed25519 (default name = zero-config: ssh user@ip just works)'
+    }
+    $pub = (Get-Content "$key.pub" -Raw).Trim()
+    $tpl = Join-Path $here 'LAN-SSH-Setup.ps1.template'
+    $bat = Join-Path $here 'START-LAN-SSH.bat'
+    $zipSrc = Join-Path $here 'OpenSSH-Win64.zip'
+    foreach ($f in @($tpl, $bat, $zipSrc)) { if (-not (Test-Path $f)) { Write-Output ('!! missing beside tailpet-b.ps1: ' + (Split-Path $f -Leaf)); return } }
+    $rendered = (Get-Content $tpl -Raw).Replace('{{B_PUBKEY}}', $pub)
+    $tmp = Join-Path $env:TEMP 'LAN-SSH-Setup.ps1'
+    [IO.File]::WriteAllText($tmp, $rendered, [Text.Encoding]::ASCII)
+    $zip = Join-Path $here 'C-Bootstrap.zip'
+    Compress-Archive -Path $bat, $tmp, $zipSrc -DestinationPath $zip -Force
+    Write-Output "[c-zip] created: $zip"
+    Write-Output '        copy to the LAN-only machine (C), unzip, double-click START-LAN-SSH.bat'
+}
+
 switch ($Action.ToLower()) {
     'setup' { Do-Setup }
     'join'  { Do-Join }
     'quit'  { Do-Quit }
     'status'{ Do-Status }
     'doctor'{ Do-Doctor }
-    default { Write-Output "Usage: b_tailnet_manager.ps1 <setup|join|quit|status|doctor> [-Key <authkey>]" }
+    'make-c-zip' { Do-MakeCZip }
+    default { Write-Output "Usage: b_tailnet_manager.ps1 <setup|join|quit|status|doctor|make-c-zip> [-Key <authkey>] [-Hostname <name>]" }
 }

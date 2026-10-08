@@ -1,0 +1,54 @@
+# LAN-SSH-Setup.ps1 - offline sshd installer for LAN-only machines (C)
+# Rendered on B by: tailpet-b.ps1 make-c-zip   ({{B_PUBKEY}} = B's public key)
+# After install, from B:  ssh <user>@<this-machine-LAN-IP>   (passwordless)
+# NOTE: the login account MUST have a Windows password set (blank-password
+#       accounts are blocked from network logon by Windows policy, key auth included).
+$ErrorActionPreference = 'Continue'
+$here = Split-Path -Parent $MyInvocation.MyCommand.Path
+$B_PUB = '{{B_PUBKEY}}'
+
+Write-Output '[1/4] Installing OpenSSH Server (offline zip)...'
+if (-not (Get-Service sshd -ErrorAction SilentlyContinue)) {
+    $sshDir = Join-Path $env:ProgramFiles 'OpenSSH-Win64'
+    if (-not (Test-Path "$sshDir\install-sshd.ps1")) {
+        Expand-Archive -Path (Join-Path $here 'OpenSSH-Win64.zip') -DestinationPath $env:ProgramFiles -Force
+    }
+    & "$sshDir\install-sshd.ps1" | Out-Null
+    Set-Service sshd -StartupType Automatic
+    Start-Service sshd
+}
+Write-Output ('      sshd: ' + (Get-Service sshd -ErrorAction SilentlyContinue).Status)
+
+Write-Output '[2/4] Authorizing B public key (admin file + current-user file)...'
+$keyBody = ($B_PUB.Split(' '))[1]
+$kf = "$env:ProgramData\ssh\administrators_authorized_keys"
+$cur = if (Test-Path $kf) { Get-Content $kf -Raw } else { '' }
+if ($cur -notlike "*$keyBody*") { Add-Content -Path $kf -Value $B_PUB -Encoding ascii }
+icacls $kf /inheritance:r /grant 'Administrators:F' /grant 'SYSTEM:F' | Out-Null
+$ukf = Join-Path $env:USERPROFILE '.ssh\authorized_keys'
+New-Item -ItemType Directory -Force -Path (Split-Path $ukf) | Out-Null
+$ucur = if (Test-Path $ukf) { Get-Content $ukf -Raw } else { '' }
+if ($ucur -notlike "*$keyBody*") { Add-Content -Path $ukf -Value $B_PUB -Encoding ascii }
+icacls $ukf /inheritance:r /grant "$($env:USERNAME):F" /grant 'SYSTEM:F' /grant 'Administrators:F' | Out-Null
+Write-Output '      done'
+
+Write-Output '[3/4] Firewall: port 22 from LocalSubnet only...'
+$fw = Get-NetFirewallRule -DisplayName 'OpenSSH-Server-In-TCP' -ErrorAction SilentlyContinue
+if (-not $fw) {
+    New-NetFirewallRule -DisplayName 'OpenSSH-Server-In-TCP' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 22 -RemoteAddress LocalSubnet | Out-Null
+} else {
+    Set-NetFirewallRule -DisplayName 'OpenSSH-Server-In-TCP' -RemoteAddress LocalSubnet
+}
+Write-Output '      done'
+
+Write-Output '[4/4] Report:'
+hostname
+whoami
+$ips = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+    Where-Object { $_.IPAddress -notmatch '^(127\.|169\.254\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)' } |
+    Select-Object -ExpandProperty IPAddress
+Write-Output ('LAN IP(s): ' + ($ips -join ', '))
+Write-Output ''
+Write-Output '==== LAN sshd ready ===='
+Write-Output ('From B:  ssh ' + $env:USERNAME + '@<LAN-IP-above>   (passwordless via B key)')
+Write-Output 'Remember: this account must have a Windows password set.'

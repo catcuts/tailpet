@@ -8,8 +8,8 @@ $AUTHKEY = '{{AUTHKEY}}'
 $EXPIRES = '{{EXPIRES}}'
 $A_PUB   = '{{A_PUBKEY}}'
 
-# ---- [0/6] pre-flight: key expiry (fast-fail before touching anything) ----
-Write-Output '[0/6] Checking enrollment key validity...'
+# ---- [0/7] pre-flight: key expiry (fast-fail before touching anything) ----
+Write-Output '[0/7] Checking enrollment key validity...'
 $exp = [DateTime]::ParseExact($EXPIRES, 'yyyy-MM-dd HH:mm', $null)
 if ((Get-Date) -gt $exp) {
     Write-Output ('      KEY EXPIRED at ' + $EXPIRES + ' (this machine now: ' + (Get-Date -Format 'yyyy-MM-dd HH:mm') + ')')
@@ -19,8 +19,8 @@ if ((Get-Date) -gt $exp) {
 }
 Write-Output ('      key valid until ' + $EXPIRES)
 
-# ---- [1/6] Tailscale client (offline msi) ----
-Write-Output '[1/6] Tailscale client...'
+# ---- [1/7] Tailscale client (offline msi) ----
+Write-Output '[1/7] Tailscale client...'
 $TS_EXE = "$env:ProgramFiles\Tailscale\tailscale.exe"
 if (-not (Test-Path $TS_EXE)) {
     $msi = Get-ChildItem $here -Filter '*.msi' | Select-Object -First 1
@@ -32,8 +32,8 @@ if (-not (Test-Path $TS_EXE)) {
 }
 if (Test-Path $TS_EXE) { Write-Output '      ok' } else { Write-Output '      !! Tailscale not ready'; exit 1 }
 
-# ---- [2/6] join tailnet ----
-Write-Output '[2/6] Joining tailnet...'
+# ---- [2/7] join tailnet ----
+Write-Output '[2/7] Joining tailnet...'
 $hn = $env:COMPUTERNAME.ToLower()
 & $TS_EXE up --login-server=$SERVER --authkey=$AUTHKEY --hostname=$hn --unattended --force-reauth 2>&1 | Out-Null
 Start-Sleep 4
@@ -48,8 +48,8 @@ if (-not $ip -or $st -match 'logged out') {
 }
 Write-Output ('      joined, tailscale ip: ' + $ip)
 
-# ---- [3/6] OpenSSH Server (offline zip) ----
-Write-Output '[3/6] OpenSSH Server...'
+# ---- [3/7] OpenSSH Server (offline zip) ----
+Write-Output '[3/7] OpenSSH Server...'
 if (-not (Get-Service sshd -ErrorAction SilentlyContinue)) {
     $sshDir = Join-Path $env:ProgramFiles 'OpenSSH-Win64'
     if (-not (Test-Path "$sshDir\install-sshd.ps1")) {
@@ -61,8 +61,8 @@ if (-not (Get-Service sshd -ErrorAction SilentlyContinue)) {
 }
 Write-Output ('      sshd: ' + (Get-Service sshd -ErrorAction SilentlyContinue).Status)
 
-# ---- [4/6] A pubkey ----
-Write-Output '[4/6] Authorizing A management pubkey...'
+# ---- [4/7] A pubkey ----
+Write-Output '[4/7] Authorizing A management pubkey...'
 $ak = "$env:ProgramData\ssh\administrators_authorized_keys"
 $cur = if (Test-Path $ak) { Get-Content $ak -Raw } else { '' }
 if ($cur -notlike "*$($A_PUB.Split(' ')[1])*") {
@@ -71,17 +71,24 @@ if ($cur -notlike "*$($A_PUB.Split(' ')[1])*") {
 icacls $ak /inheritance:r /grant "Administrators:F" /grant "SYSTEM:F" | Out-Null
 Write-Output '      done'
 
-# ---- [5/6] firewall: 22 only from tailnet ----
-Write-Output '[5/6] Tightening port 22 to tailnet range...'
+# ---- [5/7] firewall: 22 only from tailnet ----
+Write-Output '[5/7] Tightening port 22 to tailnet range...'
 Get-NetFirewallRule -DisplayName 'OpenSSH*' -ErrorAction SilentlyContinue |
   Where-Object { $_.Direction -eq 'Inbound' } | Set-NetFirewallRule -RemoteAddress 100.64.0.0/10
 Write-Output '      done'
 
-# ---- [6/6] report ----
-Write-Output '[6/6] Report:'
+# ---- [6/7] report ----
+Write-Output '[6/7] Report:'
 hostname
 whoami
 Write-Output ('sshd: ' + (Get-Service sshd).Status)
 & $TS_EXE status
 Write-Output ''
+
+# ---- [7/7] generate C-Bootstrap.zip (offline sshd pkg for LAN-only machines) ----
+if (Test-Path "$here\tailpet-b.ps1") {
+    Write-Output '[7/7] Generating C-Bootstrap.zip (for LAN-only machines)...'
+    & "$here\tailpet-b.ps1" make-c-zip
+}
+
 Write-Output '==== B bootstrap COMPLETE - manage me from A:  tailpet ssh ===='
