@@ -1,0 +1,68 @@
+# PUB-SSH-Setup.ps1 - offline sshd installer for machines WITH public IP (no tailnet)
+# Rendered by: tailpet gen-b --zip   ({{A_PUBKEY}} = A's management public key)
+# Idempotent: safe to re-run; skips already-completed steps.
+# After install, from A:  ssh -i <management-key> <user>@<this-machine-public-IP>
+# NOTE: the login account MUST have a Windows password set (blank-password
+#       accounts are blocked from network logon by Windows policy, key auth included).
+$ErrorActionPreference = 'Continue'
+$here = Split-Path -Parent $MyInvocation.MyCommand.Path
+$A_PUB = '{{A_PUBKEY}}'
+
+# ---- [1/4] OpenSSH Server (offline zip, idempotent) ----
+Write-Output '[1/4] OpenSSH Server...'
+$sshd = Get-Service sshd -ErrorAction SilentlyContinue
+if (-not $sshd) {
+    foreach ($svc in @('ssh-agent','sshd')) {
+        if (Get-Service $svc -ErrorAction SilentlyContinue) {
+            Stop-Service $svc -Force -ErrorAction SilentlyContinue
+            sc.exe delete $svc | Out-Null
+            Write-Output "    removed partial service: $svc"
+        }
+    }
+    $sshDir = Join-Path $env:ProgramFiles 'OpenSSH-Win64'
+    if (-not (Test-Path "$sshDir\install-sshd.ps1")) {
+        Expand-Archive -Path (Join-Path $here 'OpenSSH-Win64.zip') -DestinationPath $env:ProgramFiles -Force
+    }
+    & "$sshDir\install-sshd.ps1" | Out-Null
+    Set-Service sshd -StartupType Automatic
+    Start-Service sshd
+} else {
+    if ($sshd.Status -ne 'Running') { Start-Service sshd }
+    Write-Output '    already installed'
+}
+Write-Output ('    sshd: ' + (Get-Service sshd -ErrorAction SilentlyContinue).Status)
+
+# ---- [2/4] Authorize A management key (admin file + current-user file) ----
+Write-Output '[2/4] Authorizing A management key...'
+$keyBody = ($A_PUB.Split(' '))[1]
+$kf = "$env:ProgramData\ssh\administrators_authorized_keys"
+$cur = if (Test-Path $kf) { Get-Content $kf -Raw } else { '' }
+if ($cur -notlike "*$keyBody*") { Add-Content -Path $kf -Value $A_PUB -Encoding ascii }
+icacls $kf /inheritance:r /grant 'Administrators:F' /grant 'SYSTEM:F' | Out-Null
+$ukf = Join-Path $env:USERPROFILE '.ssh\authorized_keys'
+New-Item -ItemType Directory -Force -Path (Split-Path $ukf) | Out-Null
+$ucur = if (Test-Path $ukf) { Get-Content $ukf -Raw } else { '' }
+if ($ucur -notlike "*$keyBody*") { Add-Content -Path $ukf -Value $A_PUB -Encoding ascii }
+icacls $ukf /inheritance:r /grant "$($env:USERNAME):F" /grant 'SYSTEM:F' /grant 'Administrators:F' | Out-Null
+Write-Output '    done'
+
+# ---- [3/4] Firewall: port 22 from anywhere ----
+Write-Output '[3/4] Firewall: port 22...'
+$fw = Get-NetFirewallRule -DisplayName 'PUB-SSH-Server-In' -ErrorAction SilentlyContinue
+if (-not $fw) {
+    New-NetFirewallRule -DisplayName 'PUB-SSH-Server-In' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 22 -RemoteAddress Any | Out-Null
+    Write-Output '    rule created (scope: Any - tighten source in cloud SG if possible)'
+} else { Write-Output '    rule exists' }
+
+# ---- [4/4] Report ----
+Write-Output '[4/4] Report:'
+hostname
+whoami
+$pubIps = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+    Where-Object { $_.IPAddress -notmatch '^(127\.|169\.254\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)' } |
+    Select-Object -ExpandProperty IPAddress
+Write-Output ('Public IP(s): ' + ($pubIps -join ', '))
+Write-Output ''
+Write-Output '==== Public sshd ready ===='
+Write-Output ('From A:  ssh -i <mgmt-key> <user>@<IP-above>')
+Write-Output 'Remember: this account must have a Windows password set.'

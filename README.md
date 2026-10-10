@@ -128,6 +128,10 @@ tailpet remove <ID>  # 从控制面除名节点
 
 C 够不着 S，进不了 tailnet——也无需进入。START-B.bat 在 B 上完成接入时会**自动生成** `C-Bootstrap.zip`（B 包同目录，内嵌 B 公钥的离线 sshd 安装包）。拷到 C 解压、双击 `START-LAN-SSH.bat` 即完成；此后在 B 上 `ssh user@C的IP` 免密直达（A 侧 `tailpet ssh` 进 B 再跳一次）。B 的密钥为默认名 `id_ed25519`，ssh 自动使用、零配置。注意：C 的登录账户需设有 Windows 密码（系统策略禁止空密码账户网络登录）；该 sshd 仅放行本网段（LocalSubnet）。密钥轮换或包丢失时在 B 上重跑 `tailpet-b.ps1 make-c-zip`。
 
+**有公网 IP、不入 tailnet 的机器（公网直连 B）**
+
+有些机器已有公网 IP 且不需要 tailnet 的全部能力——只需要 A 能 ssh 到达。B 包内第三个入口 `START-PUB-SSH.bat`：拷包过去双击即装 sshd（离线）+ 授权 **A 的管理公钥** + 防火墙放行 22（全来源）。之后 A 侧 `ssh -i <管理钥> <user>@<公网IP>` 直达，与 tailnet 无关。
+
 设备退出的完整语义是两步：B 侧 `quit`（logout，立即失联）+ A 侧 `remove <ID>`（控制面除名）。只 quit 不 remove，节点会一直挂在列表里。
 
 以上是"怎么用"。往下是"为什么这样设计"——理解它们，你才知道哪些环节可以动、哪些是雷。
