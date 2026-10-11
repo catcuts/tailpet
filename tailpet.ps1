@@ -187,63 +187,186 @@ function Save-UserFor([string]$ip, [string]$u) {
     $memo | ConvertTo-Json | Set-Content $memoFile -Encoding UTF8
 }
 
-function Invoke-TailpetSsh {
-    # 形态1: tailpet ssh            交互选择器
-    # 形态2: tailpet ssh <node>      交互登录
-    # 形态3: tailpet ssh <node> <cmd...>  远程执行（ssh_helper 语义：PS 目标 EncodedCommand）
-    $nodeTok = if ($Rest.Count -ge 1) { "$($Rest[0])" } else { $null }
-    $userParam = $null
-    for ($i = 1; $i -lt $Rest.Count; $i++) {
-        if ("$($Rest[$i])" -eq '-u' -and $i + 1 -lt $Rest.Count) { $userParam = "$($Rest[$i+1])" }
-    }
-    $cmdParts = @($Rest | Select-Object -Skip 1 | Where-Object { $_ -ne $userParam -and ("$_" -ne '-u') })
 
-    if (-not $nodeTok) {
-        $peers = Get-Peers
-        if (-not $peers) { Write-Output 'no peers found'; return }
-        Write-Output '=== B 类节点 ==='
-        for ($i = 0; $i -lt $peers.Count; $i++) {
-            Write-Output (('  [{0}] {1}  {2}  ({3})' -f ($i+1), $peers[$i].IP.PadRight(14), $peers[$i].Host.PadRight(18), $peers[$i].State))
+# ============ 本地机器注册表 ============
+$MachinesFile = Join-Path $pkgDir '.machines.json'
+
+function Get-Machines {
+    if (Test-Path $MachinesFile) {
+        $raw = Get-Content $MachinesFile -Raw -Encoding UTF8
+        $parsed = $raw | ConvertFrom-Json
+        if ($parsed -is [array]) { return $parsed } else { return @($parsed) }
+    }
+    return @()
+}
+
+function Set-Machines($machines) {
+    $machines | ConvertTo-Json -Depth 3 | Set-Content $MachinesFile -Encoding UTF8
+}
+
+function Do-MachineAdd([string]$name, [string]$ip, [string]$user, [string]$type, [string]$jump) {
+    if (-not $name -or -not $ip) {
+        Write-Output 'usage: tailpet machine add <name> <ip> [-user u] [-type pub|lan] [-jump B名]'
+        Write-Output '  type: pub=公网直连, lan=C类(经B跳板); jump 仅 type=lan 时需要'
+        return
+    }
+    if (-not $user) { $user = 'administrator' }
+    if (-not $type) { $type = 'pub' }
+    if ($type -eq 'lan' -and -not $jump) { Write-Output '!! type=lan 需要指定 -jump <B名>'; return }
+    $machines = @(Get-Machines)
+    $exists = $machines | Where-Object { $_.name -ieq $name }
+    if ($exists) { Write-Output "!! 已存在同名机器: $name"; return }
+    $machines += [pscustomobject]@{ name = $name; ip = $ip; user = $user; type = $type; jump = $jump }
+    Set-Machines $machines
+    Write-Output "added: $name ($ip, $type$(if ($jump) { ', jump=' + $jump }))"
+}
+
+function Do-MachineRemove([string]$name) {
+    if (-not $name) { Write-Output 'usage: tailpet machine remove <name>'; return }
+    $machines = @(Get-Machines)
+    $kept = @($machines | Where-Object { $_.name -ne $name })
+    if ($kept.Count -eq $machines.Count) { Write-Output "!! 未找到: $name"; return }
+    Set-Machines $kept
+    Write-Output "removed: $name"
+}
+
+function Do-MachineList {
+    $machines = Get-Machines
+    if (-not $machines -or $machines.Count -eq 0) { Write-Output '(注册表为空 — tailpet machine add 添加)'; return }
+    Write-Output ('{0,-20} {1,-16} {2,-16} {3,-6} {4}' -f 'NAME', 'IP', 'USER', 'TYPE', 'JUMP')
+    for ($i = 0; $i -lt $machines.Count; $i++) {
+        $m = $machines[$i]
+        Write-Output ('{0,-20} {1,-16} {2,-16} {3,-6} {4}' -f "$($m.name)", "$($m.ip)", "$($m.user)", "$($m.type)", "$($m.jump)")
+    }
+}
+
+# ============ gen-prompt ============
+function Do-GenPrompt {
+    # 构建合并列表：tailnet 节点（实时）+ 本地注册表
+    $items = @()
+
+    # tailnet 节点
+    $peers = Get-Peers
+    foreach ($p in $peers) {
+        $items += [pscustomobject]@{
+            Label = "$($p.Host)  $($p.IP.PadRight(14)) (tailnet)"
+            Type = 'tailnet'; IP = $p.IP; Name = $p.Host; User = $null; Jump = $null
         }
-        $sel = Read-Host '选择编号回车进入（直接回车取消）'
-        if (-not $sel) { return }
-        $p = $peers[[int]$sel - 1]
-        $u = Get-UserFor $p.IP $userParam
-        $input_u = Read-Host "ssh 用户 [默认 $u]"
-        if ($input_u) { $u = $input_u }
-        Save-UserFor $p.IP $u
-        Write-Output ">>> ssh -i <管理钥> $u@$($p.IP)"
-        & ssh -i $KEY "$u@$($p.IP)"
-        return
     }
 
-    $ip = $null; $hostn = $null
-    if ($nodeTok -match '^100\.\d+\.\d+\.\d+$') { $ip = $nodeTok }
-    else {
-        $nodes = Get-NodesJson
-        $n = Resolve-Node $nodeTok $nodes
-        if ($n) { $ip = (@($n.ip_addresses) | Where-Object { $_ -match '^100\.' } | Select-Object -First 1); $hostn = $n.name }
-    }
-    if (-not $ip) { Write-Output "!! 节点未找到: $nodeTok（tailpet nodes 查看）"; return }
-    $u = Get-UserFor $ip $userParam
-
-    if ($cmdParts.Count -eq 0) {
-        Write-Output ">>> ssh -i <管理钥> $u@$ip"
-        & ssh -i $KEY "$u@$ip"
-        return
+    # 注册表机器
+    $machines = @(Get-Machines)
+    foreach ($m in $machines) {
+        $typeLabel = if ($m.type -eq 'lan') { "C类,经$($m.jump)" } else { $m.type }
+        $items += [pscustomobject]@{
+            Label = "$($m.name.PadRight(18)) $($m.ip.PadRight(16)) ($typeLabel)"
+            Type = $m.type; IP = $m.ip; Name = $m.name; User = $m.user; Jump = $m.jump
+        }
     }
 
-    $cmd = ($cmdParts -join ' ')
-    $isPs = $true
-    if ($cmd -match '^(whoami|hostname)(&|\s|$)' -or $cmd -match '&\s' -or $cmd -match '/bin/' -or $cmd -match '\bsudo\b' -or $cmd -match '^wsl ') { $isPs = $false }
-    if ($isPs) {
-        $psScript = '[Console]::OutputEncoding=[Text.Encoding]::UTF8; ' + $cmd
-        $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($psScript))
-        $wire = 'powershell -NoProfile -EncodedCommand ' + $enc
-    } else { $wire = $cmd }
-    $out = & ssh -i $KEY -o BatchMode=yes "$u@$ip" $wire 2>&1
-    $out | ForEach-Object { "$_" }
-    exit $LASTEXITCODE
+    # 新建选项
+    $items += [pscustomobject]@{
+        Label = '新建...'; Type = 'new'; IP = $null; Name = $null; User = $null; Jump = $null
+    }
+
+    Write-Output '=== 生成连接信息 ==='
+    for ($i = 0; $i -lt $items.Count; $i++) {
+        Write-Output ('  [{0}] {1}' -f ($i+1), $items[$i].Label)
+    }
+    $sel = Read-Host '选择编号（直接回车取消）'
+    if (-not $sel) { return }
+    $item = $items[[int]$sel - 1]
+
+    if ($item.Type -eq 'new') {
+        $item = New-MachineInteractive
+        if (-not $item) { return }
+        # 保存到注册表
+        $machines = @(Get-Machines)
+        $machines += [pscustomobject]@{ name = $item.Name; ip = $item.IP; user = $item.User; type = $item.Type; jump = $item.Jump }
+        Set-Machines $machines
+        Write-Output "(已保存到注册表: $($item.Name))"
+    }
+
+    # 询问用户名（如果有默认则提示）
+    if (-not $item.User) { $item.User = 'administrator' }
+    $inputU = Read-Host "SSH 用户 [默认 $($item.User)]"
+    if ($inputU) { $item.User = $inputU }
+
+    # 生成文本
+    $text = Build-PromptText $item
+
+    Write-Output ''
+    Write-Output '==================== 生成的连接信息 ===================='
+    Write-Output $text
+    Write-Output '========================================================='
+    try {
+        Set-Clipboard -Value $text
+        Write-Output '(已复制到剪贴板)'
+    } catch { Write-Output '(剪贴板复制失败 — 请手动复制上方文本)' }
+}
+
+function New-MachineInteractive {
+    Write-Output '机器类型:'
+    Write-Output '  [1] 公网直连（有公网 IP，不入 tailnet）'
+    Write-Output '  [2] C 类（同网段，经 B 跳板）'
+    $t = Read-Host '选择'
+    if ($t -eq '1') {
+        $ip = Read-Host '公网 IP'
+        $name = Read-Host '名称（如 web-server）'
+        $user = Read-Host 'SSH 用户 [administrator]'
+        if (-not $user) { $user = 'administrator' }
+        return [pscustomobject]@{ Type = 'pub'; IP = $ip; Name = $name; User = $user; Jump = $null }
+    } elseif ($t -eq '2') {
+        $peers = Get-Peers
+        Write-Output '跳板 B 是哪台?'
+        for ($i = 0; $i -lt $peers.Count; $i++) {
+            Write-Output ('  [{0}] {1}' -f ($i+1), $peers[$i].Host)
+        }
+        $jsel = Read-Host '选择'
+        $jump = $peers[[int]$jsel - 1].Host
+        $ip = Read-Host 'C 的 LAN IP'
+        $name = Read-Host '名称（如 c-behind-sg）'
+        $user = Read-Host 'C 的 SSH 用户'
+        return [pscustomobject]@{ Type = 'lan'; IP = $ip; Name = $name; User = $user; Jump = $jump }
+    }
+    return $null
+}
+
+function Build-PromptText($item) {
+    $keyPath = '~/.ssh/id_ed25519_voerka'
+    $lines = @()
+
+    if ($item.Type -eq 'tailnet') {
+        $lines += '## B 机连接信息：' + $item.Name
+        $lines += '- **Tailnet IP**: ' + $item.IP
+        $lines += '- **SSH 用户**: ' + $item.User
+        $lines += '- **SSH 密钥**: ' + $keyPath
+        $lines += '- **连接**:'
+        $lines += '  - `tailpet ssh ' + $item.Name + '`（交互进入）'
+        $lines += '  - `tailpet ssh ' + $item.Name + ' "命令"`（远程执行，支持 PowerShell 语法）'
+        $lines += '  - `ssh -i ' + $keyPath + ' ' + $item.User + '@' + $item.IP + '`'
+        $lines += '- **系统**: Windows'
+        $lines += '- **注意**: 远程执行 PS 命令建议用 EncodedCommand 避免转义；中文输出按 GBK 解码'
+    }
+    elseif ($item.Type -eq 'pub') {
+        $lines += '## 公网直连机器：' + $item.Name
+        $lines += '- **公网 IP**: ' + $item.IP
+        $lines += '- **SSH 用户**: ' + $item.User
+        $lines += '- **SSH 密钥**: ' + $keyPath
+        $lines += '- **连接**: `ssh -i ' + $keyPath + ' ' + $item.User + '@' + $item.IP + '`'
+        $lines += '- **注意**: Windows 系统；远程执行 PS 命令建议用 EncodedCommand'
+    }
+    elseif ($item.Type -eq 'lan') {
+        $lines += '## C 机连接信息：' + $item.Name + '（经 ' + $item.Jump + ' 跳板）'
+        $lines += '- **跳板 B**: ' + $item.Jump
+        $lines += '- **C 的 LAN IP**: ' + $item.IP
+        $lines += '- **C 的 SSH 用户**: ' + $item.User
+        $lines += '- **连接**:'
+        $lines += '  1. 先进 B：`tailpet ssh ' + $item.Jump + '`'
+        $lines += '  2. 再进 C：`ssh ' + $item.User + '@' + $item.IP + '`（B 上有默认密钥，免密直达）'
+        $lines += '- **注意**: C 不入 tailnet；C 必须有密码的 Windows 账户'
+    }
+    return ($lines -join "`n")
 }
 
 # ============ 部署/维护：封装 deploy.py ============
@@ -269,6 +392,12 @@ tailpet v1.0 —— 自建组网管理器（S 控制面 / A 管理机 / B 现场
   tailpet rename <id> <名>        节点改名
   tailpet remove <id>             节点除名
 
+机器管理：
+  tailpet gen-prompt              交互式生成连接信息（自动复制到剪贴板）
+  tailpet machine list            查看本地机器注册表
+  tailpet machine add <名> <IP> [-u 用户] [-t pub|lan] [-j 跳板B]
+  tailpet machine remove <名>     从注册表删除
+
 部署：
   tailpet make-s-zip              生成 S 离线引导包（out/S-Bootstrap.zip）
   tailpet gen-b [--zip]           生成 B 脚本（--zip=离线安装包 out/B-Bootstrap-<日期>.zip）
@@ -293,6 +422,16 @@ switch ($Cmd.ToLower()) {
     'link'     { Do-Link "$($Rest[0])" "$($Rest[1])" }
     'unlink'   { Do-Link "$($Rest[0])" "$($Rest[1])" -Remove }
     'links'    { Do-Links }
+    'gen-prompt'   { Do-GenPrompt }
+    'machine'      {
+        $sub = "$($Rest[0])"
+        switch ($sub) {
+            'add'    { Do-MachineAdd "$($Rest[1])" "$($Rest[2])" "$($Rest[3])" "$($Rest[4])" "$($Rest[5])" }
+            'remove' { Do-MachineRemove "$($Rest[1])" }
+            'list'   { Do-MachineList }
+            default  { Do-MachineList }
+        }
+    }
     'make-s-zip'   { Invoke-Deploy }
     'gen-b'        { Invoke-Deploy }
     'bootstrap-s'  { Invoke-Deploy }

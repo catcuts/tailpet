@@ -1,6 +1,12 @@
-cache/
-out/
+# 环境实参（含服务器/域名/token）
 params.json
+# 凭据
+secrets/
+# 生成产物与本地状态
+out/
 .a_ssh_last.json
+# 杂物
 __pycache__/
 *.pyc
+cache/
+.machines.json
