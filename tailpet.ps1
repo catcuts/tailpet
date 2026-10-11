@@ -369,6 +369,106 @@ function Build-PromptText($item) {
     return ($lines -join "`n")
 }
 
+
+function Invoke-TailpetSsh {
+    # 形态1: tailpet ssh            交互选择器（tailnet + 注册表合并）
+    # 形态2: tailpet ssh <node>      交互登录
+    # 形态3: tailpet ssh <node> <cmd...>  远程执行（PS 目标 EncodedCommand）
+    $nodeTok = if ($Rest.Count -ge 1) { "$($Rest[0])" } else { $null }
+    $userParam = $null
+    for ($i = 1; $i -lt $Rest.Count; $i++) {
+        if ("$($Rest[$i])" -eq '-u' -and $i + 1 -lt $Rest.Count) { $userParam = "$($Rest[$i+1])" }
+    }
+    $cmdParts = @($Rest | Select-Object -Skip 1 | Where-Object { $_ -ne $userParam -and ("$_" -ne '-u') })
+
+    if (-not $nodeTok) {
+        # 统一选择器：tailnet 节点（富信息）+ 注册表公网/C类
+        $myip = (& $TS ip -4 2>$null | Select-Object -First 1)
+        $nodes = Get-NodesJson
+        $tnList = @()
+        foreach ($n in $nodes) {
+            $ip = (@($n.ip_addresses) | Where-Object { $_ -match '^100\.' } | Select-Object -First 1)
+            if (-not $ip -or $ip -eq $myip) { continue }
+            $disp = if ($n.given_name) { $n.given_name } else { $n.name }
+            $seen = if ($n.last_seen.seconds) { [DateTimeOffset]::FromUnixTimeSeconds($n.last_seen.seconds).LocalDateTime.ToString('MM-dd HH:mm') } else { '-' }
+            $status = if ($n.online) { 'online' } else { 'offline' }
+            $tnList += [pscustomobject]@{ IP = $ip; Name = $disp; Status = $status; Seen = $seen }
+        }
+        $machines = Get-Machines
+        $total = $tnList.Count + $machines.Count
+        if ($total -eq 0) { Write-Output 'no machines found'; return }
+        Write-Output '=== 可连接机器 ==='
+        $idx = 0
+        for ($i = 0; $i -lt $tnList.Count; $i++, $idx++) {
+            Write-Output (('  [{0}] {1}  {2}  {3}  {4}' -f ($idx+1), $tnList[$i].Name.PadRight(20), $tnList[$i].IP.PadRight(14), $tnList[$i].Status.PadRight(8), $tnList[$i].Seen))
+        }
+        for ($i = 0; $i -lt $machines.Count; $i++, $idx++) {
+            $m = $machines[$i]
+            $tag = if ($m.type -eq 'lan') { "C类→$($m.jump)" } else { $m.type }
+            Write-Output (('  [{0}] {1}  {2}  {3}' -f ($idx+1), $m.name.PadRight(20), $m.ip.PadRight(14), $tag))
+        }
+        $sel = Read-Host '选择编号回车进入（直接回车取消）'
+        if (-not $sel) { return }
+        $si = [int]$sel - 1
+        if ($si -lt $tnList.Count) {
+            # tailnet 节点：直连
+            $p = $tnList[$si]
+            $u = Get-UserFor $p.IP $userParam
+            $input_u = Read-Host "ssh 用户 [默认 $u]"
+            if ($input_u) { $u = $input_u }
+            Save-UserFor $p.IP $u
+            Write-Output ">>> ssh -i <管理钥> $u@$($p.IP)"
+            & ssh -i $KEY "$u@$($p.IP)"
+        } else {
+            # 注册表机器
+            $m = $machines[$si - $tnList.Count]
+            if ($m.type -eq 'lan') {
+                # C 类：先进 B 再进 C（-t 保持终端）
+                $jumpNode = Resolve-Node $m.jump (Get-NodesJson)
+                if (-not $jumpNode) { Write-Output "!! 跳板 B 未找到: $($m.jump)"; return }
+                $jumpIp = (@($jumpNode.ip_addresses) | Where-Object { $_ -match '^100\.' } | Select-Object -First 1)
+                $ju = Get-UserFor $jumpIp $null
+                Write-Output ">>> 经 B($($m.jump)) 跳转到 C($($m.name)) ..."
+                & ssh -t -i $KEY "$ju@$jumpIp" "ssh $($m.user)@$($m.ip)"
+            } else {
+                # 公网直连
+                Write-Output ">>> ssh -i <管理钥> $($m.user)@$($m.ip)"
+                & ssh -i $KEY "$($m.user)@$($m.ip)"
+            }
+        }
+        return
+    }
+
+    # 按名/IP/ID 直连
+    $ip = $null; $hostn = $null
+    if ($nodeTok -match '^100\.\d+\.\d+\.\d+$') { $ip = $nodeTok }
+    else {
+        $nodes = Get-NodesJson
+        $n = Resolve-Node $nodeTok $nodes
+        if ($n) { $ip = (@($n.ip_addresses) | Where-Object { $_ -match '^100\.' } | Select-Object -First 1); $hostn = $n.name }
+    }
+    if (-not $ip) { Write-Output "!! 节点未找到: $nodeTok（tailpet nodes 查看）"; return }
+    $u = Get-UserFor $ip $userParam
+
+    if ($cmdParts.Count -eq 0) {
+        Write-Output ">>> ssh -i <管理钥> $u@$ip"
+        & ssh -i $KEY "$u@$ip"
+        return
+    }
+
+    $cmd = ($cmdParts -join ' ')
+    $isPs = $true
+    if ($cmd -match '^(whoami|hostname)(&|\s|$)' -or $cmd -match '&\s' -or $cmd -match '/bin/' -or $cmd -match '\bsudo\b' -or $cmd -match '^wsl ') { $isPs = $false }
+    if ($isPs) {
+        $psScript = '[Console]::OutputEncoding=[Text.Encoding]::UTF8; ' + $cmd
+        $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($psScript))
+        $wire = 'powershell -NoProfile -EncodedCommand ' + $enc
+    } else { $wire = $cmd }
+    $out = & ssh -i $KEY -o BatchMode=yes "$u@$ip" $wire 2>&1
+    $out | ForEach-Object { "$_" }
+    exit $LASTEXITCODE
+}
+
 # ============ 部署/维护：封装 deploy.py ============
 function Invoke-Deploy {
     $pyargs = @($Cmd) + @($Rest | ForEach-Object { "$_" })
