@@ -188,6 +188,75 @@ function Save-UserFor([string]$ip, [string]$u) {
 }
 
 
+
+function Test-SshReachable([string]$ip, [int]$timeoutSec = 3) {
+    $tcp = New-Object System.Net.Sockets.TcpClient
+    try {
+        $result = $tcp.BeginConnect($ip, 22, $null, $null)
+        $wait = $result.AsyncWaitHandle.WaitOne($timeoutSec * 1000)
+        if ($wait -and $tcp.Connected) { return $true }
+        return $false
+    } finally { $tcp.Close() }
+}
+
+function Resolve-SshTarget([string]$token) {
+    # 返回候选路径列表（pub 优先，tailnet 兜底）
+    $candidates = @()
+
+    if ($token -match '^\d+\.\d+\.\d+\.\d+$') {
+        # 直接给 IP：判断类型
+        if ($token -match '^100\.') {
+            $candidates += [pscustomobject]@{ IP = $token; Via = 'tailnet'; User = $null }
+        } else {
+            $candidates += [pscustomobject]@{ IP = $token; Via = 'pub'; User = $null }
+        }
+        return $candidates
+    }
+
+    # 名字：查注册表（pub 优先）
+    $machines = Get-Machines
+    foreach ($m in $machines) {
+        if ($m.name -ieq $token) {
+            if ($m.type -eq 'pub') {
+                $candidates += [pscustomobject]@{ IP = $m.ip; Via = 'pub'; User = $m.user }
+            } elseif ($m.type -eq 'lan') {
+                $candidates += [pscustomobject]@{ IP = $m.ip; Via = 'lan'; User = $m.user; Jump = $m.jump }
+                return $candidates  # lan 无降级
+            }
+            break
+        }
+    }
+
+    # 名字：查 tailnet 节点
+    $nodes = Get-NodesJson
+    $n = Resolve-Node $token $nodes
+    if ($n) {
+        $ip = (@($n.ip_addresses) | Where-Object { $_ -match '^100\.' } | Select-Object -First 1)
+        if ($ip) { $candidates += [pscustomobject]@{ IP = $ip; Via = 'tailnet'; User = $null } }
+    }
+
+    return $candidates
+}
+
+function Connect-Smart([object]$candidate, [string]$userParam) {
+    # 根据候选类型连接，返回 $true 成功 / $false 失败
+    if ($candidate.Via -eq 'lan') {
+        $jumpNode = Resolve-Node $candidate.Jump (Get-NodesJson)
+        if (-not $jumpNode) { Write-Output "!! 跳板 B 未找到: $($candidate.Jump)"; return $false }
+        $jumpIp = (@($jumpNode.ip_addresses) | Where-Object { $_ -match '^100\.' } | Select-Object -First 1)
+        $ju = Get-UserFor $jumpIp $null
+        Write-Output ">>> 经 B($($candidate.Jump)) 跳转到 $($candidate.IP) ..."
+        & ssh -t -i $KEY "$ju@$jumpIp" "ssh $($candidate.User)@$($candidate.IP)"
+        return $true
+    }
+
+    $u = if ($candidate.User) { $candidate.User } else { Get-UserFor $candidate.IP $userParam }
+    if ($userParam) { $u = $userParam }
+    Write-Output ">>> ssh -i <管理钥> $u@$($candidate.IP) (via $($candidate.Via))"
+    & ssh -i $KEY "$u@$($candidate.IP)"
+    return $true
+}
+
 # ============ 本地机器注册表 ============
 $MachinesFile = Join-Path $pkgDir '.machines.json'
 
@@ -245,12 +314,18 @@ function Do-GenPrompt {
     # 构建合并列表：tailnet 节点（实时）+ 本地注册表
     $items = @()
 
-    # tailnet 节点
-    $peers = Get-Peers
-    foreach ($p in $peers) {
+    # tailnet 节点（用 headscale 权威数据，与 tailpet nodes 一致）
+    $myip = (& $TS ip -4 2>$null | Select-Object -First 1)
+    $nodes = Get-NodesJson
+    foreach ($n in $nodes) {
+        $ip = (@($n.ip_addresses) | Where-Object { $_ -match '^100\.' } | Select-Object -First 1)
+        if (-not $ip -or $ip -eq $myip) { continue }
+        $disp = if ($n.given_name) { $n.given_name } else { $n.name }
+        $seen = if ($n.last_seen.seconds) { [DateTimeOffset]::FromUnixTimeSeconds($n.last_seen.seconds).LocalDateTime.ToString('MM-dd HH:mm') } else { '-' }
+        $status = if ($n.online) { 'online' } else { 'offline' }
         $items += [pscustomobject]@{
-            Label = "$($p.Host)  $($p.IP.PadRight(14)) (tailnet)"
-            Type = 'tailnet'; IP = $p.IP; Name = $p.Host; User = $null; Jump = $null
+            Label = "$($disp.PadRight(20)) $($ip.PadRight(14)) $status  $seen  (tailnet)"
+            Type = 'tailnet'; IP = $ip; Name = $disp; User = $null; Jump = $null
         }
     }
 
@@ -277,7 +352,9 @@ function Do-GenPrompt {
     if (-not $sel) { return }
     $item = $items[[int]$sel - 1]
 
+    $fromNew = $false
     if ($item.Type -eq 'new') {
+        $fromNew = $true
         $item = New-MachineInteractive
         if (-not $item) { return }
         # 保存到注册表
@@ -287,10 +364,12 @@ function Do-GenPrompt {
         Write-Output "(已保存到注册表: $($item.Name))"
     }
 
-    # 询问用户名（如果有默认则提示）
-    if (-not $item.User) { $item.User = 'administrator' }
-    $inputU = Read-Host "SSH 用户 [默认 $($item.User)]"
-    if ($inputU) { $item.User = $inputU }
+    # 询问用户名（新建时已在 New-MachineInteractive 里问过，跳过）
+    if (-not $fromNew) {
+        if (-not $item.User) { $item.User = 'administrator' }
+        $inputU = Read-Host "SSH 用户 [默认 $($item.User)]"
+        if ($inputU) { $item.User = $inputU }
+    }
 
     # 生成文本
     $text = Build-PromptText $item
@@ -306,9 +385,11 @@ function Do-GenPrompt {
 }
 
 function New-MachineInteractive {
-    Write-Output '机器类型:'
-    Write-Output '  [1] 公网直连（有公网 IP，不入 tailnet）'
-    Write-Output '  [2] C 类（同网段，经 B 跳板）'
+    # 注意：此函数返回值被赋值给变量，Write-Output 会被管道吞掉
+    # 交互提示必须用 Write-Host（直接写控制台，不走管道）
+    Write-Host '机器类型:'
+    Write-Host '  [1] 公网直连（有公网 IP，不入 tailnet）'
+    Write-Host '  [2] C 类（同网段，经 B 跳板）'
     $t = Read-Host '选择'
     if ($t -eq '1') {
         $ip = Read-Host '公网 IP'
@@ -318,9 +399,261 @@ function New-MachineInteractive {
         return [pscustomobject]@{ Type = 'pub'; IP = $ip; Name = $name; User = $user; Jump = $null }
     } elseif ($t -eq '2') {
         $peers = Get-Peers
-        Write-Output '跳板 B 是哪台?'
+        Write-Host '跳板 B 是哪台?'
         for ($i = 0; $i -lt $peers.Count; $i++) {
-            Write-Output ('  [{0}] {1}' -f ($i+1), $peers[$i].Host)
+            Write-Host ('  [{0}] {1}' -f ($i+1), $peers[$i].Host)
+        }
+        $jsel = Read-Host '选择'
+        $jump = $peers[[int]$jsel - 1].Host
+        $ip = Read-Host 'C 的 LAN IP'
+        $name = Read-Host '名称（如 c-behind-sg）'
+        $user = Read-Host 'C 的 SSH 用户'
+        return [pscustomobject]@{ Type = 'lan'; IP = $ip; Name = $name; User = $user; Jump = $jump }
+    }
+    return $null
+}
+
+function Build-PromptText($item) {
+    $lines = @()
+
+    if ($item.Type -eq 'tailnet') {
+        $lines += '## ' + $item.Name
+        $lines += '- **Tailnet IP**: ' + $item.IP
+        $lines += '- **SSH 用户**: ' + $item.User
+        $lines += '- **连接**: `tailpet ssh ' + $item.Name + '`'
+        $lines += '- **远程执行**: `tailpet ssh ' + $item.Name + ' "命令"`'
+    }
+    elseif ($item.Type -eq 'pub') {
+        $lines += '## ' + $item.Name
+        $lines += '- **IP**: ' + $item.IP + '（公网）'
+        $lines += '- **SSH 用户**: ' + $item.User
+        $lines += '- **连接**: `tailpet ssh ' + $item.Name + '`'
+        $lines += '- **远程执行**: `tailpet ssh ' + $item.Name + ' "命令"`'
+    }
+    elseif ($item.Type -eq 'lan') {
+        $lines += '## ' + $item.Name
+        $lines += '- **LAN IP**: ' + $item.IP + '（经 ' + $item.Jump + ' 跳板）'
+        $lines += '- **SSH 用户**: ' + $item.User
+        $lines += '- **连接**: `tailpet ssh ' + $item.Name + '`'
+        $lines += '- **远程执行**: `tailpet ssh ' + $item.Name + ' "命令"`'
+    }
+    $lines += '- **注意**: Windows + PowerShell 5.1；复杂命令建议先落盘 .ps1；中文按 GBK 解码'
+    return ($lines -join "`n")
+}
+
+function Test-SshReachable([string]$ip, [int]$timeoutSec = 3) {
+    $tcp = New-Object System.Net.Sockets.TcpClient
+    try {
+        $result = $tcp.BeginConnect($ip, 22, $null, $null)
+        $wait = $result.AsyncWaitHandle.WaitOne($timeoutSec * 1000)
+        if ($wait -and $tcp.Connected) { return $true }
+        return $false
+    } finally { $tcp.Close() }
+}
+
+function Resolve-SshTarget([string]$token) {
+    # 返回候选路径列表（pub 优先，tailnet 兜底）
+    $candidates = @()
+
+    if ($token -match '^\d+\.\d+\.\d+\.\d+$') {
+        # 直接给 IP：判断类型
+        if ($token -match '^100\.') {
+            $candidates += [pscustomobject]@{ IP = $token; Via = 'tailnet'; User = $null }
+        } else {
+            $candidates += [pscustomobject]@{ IP = $token; Via = 'pub'; User = $null }
+        }
+        return $candidates
+    }
+
+    # 名字：查注册表（pub 优先）
+    $machines = Get-Machines
+    foreach ($m in $machines) {
+        if ($m.name -ieq $token) {
+            if ($m.type -eq 'pub') {
+                $candidates += [pscustomobject]@{ IP = $m.ip; Via = 'pub'; User = $m.user }
+            } elseif ($m.type -eq 'lan') {
+                $candidates += [pscustomobject]@{ IP = $m.ip; Via = 'lan'; User = $m.user; Jump = $m.jump }
+                return $candidates  # lan 无降级
+            }
+            break
+        }
+    }
+
+    # 名字：查 tailnet 节点
+    $nodes = Get-NodesJson
+    $n = Resolve-Node $token $nodes
+    if ($n) {
+        $ip = (@($n.ip_addresses) | Where-Object { $_ -match '^100\.' } | Select-Object -First 1)
+        if ($ip) { $candidates += [pscustomobject]@{ IP = $ip; Via = 'tailnet'; User = $null } }
+    }
+
+    return $candidates
+}
+
+function Connect-Smart([object]$candidate, [string]$userParam) {
+    # 根据候选类型连接，返回 $true 成功 / $false 失败
+    if ($candidate.Via -eq 'lan') {
+        $jumpNode = Resolve-Node $candidate.Jump (Get-NodesJson)
+        if (-not $jumpNode) { Write-Output "!! 跳板 B 未找到: $($candidate.Jump)"; return $false }
+        $jumpIp = (@($jumpNode.ip_addresses) | Where-Object { $_ -match '^100\.' } | Select-Object -First 1)
+        $ju = Get-UserFor $jumpIp $null
+        Write-Output ">>> 经 B($($candidate.Jump)) 跳转到 $($candidate.IP) ..."
+        & ssh -t -i $KEY "$ju@$jumpIp" "ssh $($candidate.User)@$($candidate.IP)"
+        return $true
+    }
+
+    $u = if ($candidate.User) { $candidate.User } else { Get-UserFor $candidate.IP $userParam }
+    if ($userParam) { $u = $userParam }
+    Write-Output ">>> ssh -i <管理钥> $u@$($candidate.IP) (via $($candidate.Via))"
+    & ssh -i $KEY "$u@$($candidate.IP)"
+    return $true
+}
+
+# ============ 本地机器注册表 ============
+$MachinesFile = Join-Path $pkgDir '.machines.json'
+
+function Get-Machines {
+    if (Test-Path $MachinesFile) {
+        $raw = Get-Content $MachinesFile -Raw -Encoding UTF8
+        $parsed = $raw | ConvertFrom-Json
+        if ($parsed -is [array]) { return $parsed } else { return @($parsed) }
+    }
+    return @()
+}
+
+function Set-Machines($machines) {
+    $machines | ConvertTo-Json -Depth 3 | Set-Content $MachinesFile -Encoding UTF8
+}
+
+function Do-MachineAdd([string]$name, [string]$ip, [string]$user, [string]$type, [string]$jump) {
+    if (-not $name -or -not $ip) {
+        Write-Output 'usage: tailpet machine add <name> <ip> [-user u] [-type pub|lan] [-jump B名]'
+        Write-Output '  type: pub=公网直连, lan=C类(经B跳板); jump 仅 type=lan 时需要'
+        return
+    }
+    if (-not $user) { $user = 'administrator' }
+    if (-not $type) { $type = 'pub' }
+    if ($type -eq 'lan' -and -not $jump) { Write-Output '!! type=lan 需要指定 -jump <B名>'; return }
+    $machines = @(Get-Machines)
+    $exists = $machines | Where-Object { $_.name -ieq $name }
+    if ($exists) { Write-Output "!! 已存在同名机器: $name"; return }
+    $machines += [pscustomobject]@{ name = $name; ip = $ip; user = $user; type = $type; jump = $jump }
+    Set-Machines $machines
+    Write-Output "added: $name ($ip, $type$(if ($jump) { ', jump=' + $jump }))"
+}
+
+function Do-MachineRemove([string]$name) {
+    if (-not $name) { Write-Output 'usage: tailpet machine remove <name>'; return }
+    $machines = @(Get-Machines)
+    $kept = @($machines | Where-Object { $_.name -ne $name })
+    if ($kept.Count -eq $machines.Count) { Write-Output "!! 未找到: $name"; return }
+    Set-Machines $kept
+    Write-Output "removed: $name"
+}
+
+function Do-MachineList {
+    $machines = Get-Machines
+    if (-not $machines -or $machines.Count -eq 0) { Write-Output '(注册表为空 — tailpet machine add 添加)'; return }
+    Write-Output ('{0,-20} {1,-16} {2,-16} {3,-6} {4}' -f 'NAME', 'IP', 'USER', 'TYPE', 'JUMP')
+    for ($i = 0; $i -lt $machines.Count; $i++) {
+        $m = $machines[$i]
+        Write-Output ('{0,-20} {1,-16} {2,-16} {3,-6} {4}' -f "$($m.name)", "$($m.ip)", "$($m.user)", "$($m.type)", "$($m.jump)")
+    }
+}
+
+# ============ gen-prompt ============
+function Do-GenPrompt {
+    # 构建合并列表：tailnet 节点（实时）+ 本地注册表
+    $items = @()
+
+    # tailnet 节点（用 headscale 权威数据，与 tailpet nodes 一致）
+    $myip = (& $TS ip -4 2>$null | Select-Object -First 1)
+    $nodes = Get-NodesJson
+    foreach ($n in $nodes) {
+        $ip = (@($n.ip_addresses) | Where-Object { $_ -match '^100\.' } | Select-Object -First 1)
+        if (-not $ip -or $ip -eq $myip) { continue }
+        $disp = if ($n.given_name) { $n.given_name } else { $n.name }
+        $seen = if ($n.last_seen.seconds) { [DateTimeOffset]::FromUnixTimeSeconds($n.last_seen.seconds).LocalDateTime.ToString('MM-dd HH:mm') } else { '-' }
+        $status = if ($n.online) { 'online' } else { 'offline' }
+        $items += [pscustomobject]@{
+            Label = "$($disp.PadRight(20)) $($ip.PadRight(14)) $status  $seen  (tailnet)"
+            Type = 'tailnet'; IP = $ip; Name = $disp; User = $null; Jump = $null
+        }
+    }
+
+    # 注册表机器
+    $machines = @(Get-Machines)
+    foreach ($m in $machines) {
+        $typeLabel = if ($m.type -eq 'lan') { "C类,经$($m.jump)" } else { $m.type }
+        $items += [pscustomobject]@{
+            Label = "$($m.name.PadRight(18)) $($m.ip.PadRight(16)) ($typeLabel)"
+            Type = $m.type; IP = $m.ip; Name = $m.name; User = $m.user; Jump = $m.jump
+        }
+    }
+
+    # 新建选项
+    $items += [pscustomobject]@{
+        Label = '新建...'; Type = 'new'; IP = $null; Name = $null; User = $null; Jump = $null
+    }
+
+    Write-Output '=== 生成连接信息 ==='
+    for ($i = 0; $i -lt $items.Count; $i++) {
+        Write-Output ('  [{0}] {1}' -f ($i+1), $items[$i].Label)
+    }
+    $sel = Read-Host '选择编号（直接回车取消）'
+    if (-not $sel) { return }
+    $item = $items[[int]$sel - 1]
+
+    $fromNew = $false
+    if ($item.Type -eq 'new') {
+        $fromNew = $true
+        $item = New-MachineInteractive
+        if (-not $item) { return }
+        # 保存到注册表
+        $machines = @(Get-Machines)
+        $machines += [pscustomobject]@{ name = $item.Name; ip = $item.IP; user = $item.User; type = $item.Type; jump = $item.Jump }
+        Set-Machines $machines
+        Write-Output "(已保存到注册表: $($item.Name))"
+    }
+
+    # 询问用户名（新建时已在 New-MachineInteractive 里问过，跳过）
+    if (-not $fromNew) {
+        if (-not $item.User) { $item.User = 'administrator' }
+        $inputU = Read-Host "SSH 用户 [默认 $($item.User)]"
+        if ($inputU) { $item.User = $inputU }
+    }
+
+    # 生成文本
+    $text = Build-PromptText $item
+
+    Write-Output ''
+    Write-Output '==================== 生成的连接信息 ===================='
+    Write-Output $text
+    Write-Output '========================================================='
+    try {
+        Set-Clipboard -Value $text
+        Write-Output '(已复制到剪贴板)'
+    } catch { Write-Output '(剪贴板复制失败 — 请手动复制上方文本)' }
+}
+
+function New-MachineInteractive {
+    # 注意：此函数返回值被赋值给变量，Write-Output 会被管道吞掉
+    # 交互提示必须用 Write-Host（直接写控制台，不走管道）
+    Write-Host '机器类型:'
+    Write-Host '  [1] 公网直连（有公网 IP，不入 tailnet）'
+    Write-Host '  [2] C 类（同网段，经 B 跳板）'
+    $t = Read-Host '选择'
+    if ($t -eq '1') {
+        $ip = Read-Host '公网 IP'
+        $name = Read-Host '名称（如 web-server）'
+        $user = Read-Host 'SSH 用户 [administrator]'
+        if (-not $user) { $user = 'administrator' }
+        return [pscustomobject]@{ Type = 'pub'; IP = $ip; Name = $name; User = $user; Jump = $null }
+    } elseif ($t -eq '2') {
+        $peers = Get-Peers
+        Write-Host '跳板 B 是哪台?'
+        for ($i = 0; $i -lt $peers.Count; $i++) {
+            Write-Host ('  [{0}] {1}' -f ($i+1), $peers[$i].Host)
         }
         $jsel = Read-Host '选择'
         $jump = $peers[[int]$jsel - 1].Host
@@ -343,7 +676,7 @@ function Build-PromptText($item) {
         $lines += '- **SSH 密钥**: ' + $keyPath
         $lines += '- **连接**:'
         $lines += '  - `tailpet ssh ' + $item.Name + '`（交互进入）'
-        $lines += '  - `tailpet ssh ' + $item.Name + ' "命令"`（远程执行，支持 PowerShell 语法）'
+        $lines += '  - `tailpet ssh ' + $item.Name + ' "命令"`（远程执行，支持 PowerShell 语法，自动处理编码/转义）'
         $lines += '  - `ssh -i ' + $keyPath + ' ' + $item.User + '@' + $item.IP + '`'
         $lines += '- **系统**: Windows'
         $lines += '- **注意**: 远程执行 PS 命令建议用 EncodedCommand 避免转义；中文输出按 GBK 解码'
@@ -353,8 +686,11 @@ function Build-PromptText($item) {
         $lines += '- **公网 IP**: ' + $item.IP
         $lines += '- **SSH 用户**: ' + $item.User
         $lines += '- **SSH 密钥**: ' + $keyPath
-        $lines += '- **连接**: `ssh -i ' + $keyPath + ' ' + $item.User + '@' + $item.IP + '`'
-        $lines += '- **注意**: Windows 系统；远程执行 PS 命令建议用 EncodedCommand'
+        $lines += '- **连接**:'
+        $lines += '  - `tailpet ssh ' + $item.Name + '`（交互进入）'
+        $lines += '  - `tailpet ssh ' + $item.Name + ' "命令"`（远程执行，支持 PowerShell 语法，自动处理编码/转义）'
+        $lines += '  - `ssh -i ' + $keyPath + ' ' + $item.User + '@' + $item.IP + '`'
+        $lines += '- **注意**: Windows + PowerShell 5.1；复杂命令建议先落盘 .ps1 再执行；中文输出按 GBK 解码'
     }
     elseif ($item.Type -eq 'lan') {
         $lines += '## C 机连接信息：' + $item.Name + '（经 ' + $item.Jump + ' 跳板）'
@@ -362,7 +698,8 @@ function Build-PromptText($item) {
         $lines += '- **C 的 LAN IP**: ' + $item.IP
         $lines += '- **C 的 SSH 用户**: ' + $item.User
         $lines += '- **连接**:'
-        $lines += '  1. 先进 B：`tailpet ssh ' + $item.Jump + '`'
+        $lines += '  - `tailpet ssh ' + $item.Name + '`（一条命令直达，自动经 B 跳板）'
+        $lines += '  1. 或手动先进 B：`tailpet ssh ' + $item.Jump + '`'
         $lines += '  2. 再进 C：`ssh ' + $item.User + '@' + $item.IP + '`（B 上有默认密钥，免密直达）'
         $lines += '- **注意**: C 不入 tailnet；C 必须有密码的 Windows 账户'
     }
@@ -371,9 +708,9 @@ function Build-PromptText($item) {
 
 
 function Invoke-TailpetSsh {
-    # 形态1: tailpet ssh            交互选择器（tailnet + 注册表合并）
-    # 形态2: tailpet ssh <node>      交互登录
-    # 形态3: tailpet ssh <node> <cmd...>  远程执行（PS 目标 EncodedCommand）
+    # 形态1: tailpet ssh            交互选择器
+    # 形态2: tailpet ssh <node>      交互登录（智能降级：pub 优先 → tailnet 兜底）
+    # 形态3: tailpet ssh <node> <cmd...>  远程执行
     $nodeTok = if ($Rest.Count -ge 1) { "$($Rest[0])" } else { $null }
     $userParam = $null
     for ($i = 1; $i -lt $Rest.Count; $i++) {
@@ -382,7 +719,7 @@ function Invoke-TailpetSsh {
     $cmdParts = @($Rest | Select-Object -Skip 1 | Where-Object { $_ -ne $userParam -and ("$_" -ne '-u') })
 
     if (-not $nodeTok) {
-        # 统一选择器：tailnet 节点（富信息）+ 注册表公网/C类
+        # 交互选择器：tailnet 节点（富信息）+ 注册表公网/C类
         $myip = (& $TS ip -4 2>$null | Select-Object -First 1)
         $nodes = Get-NodesJson
         $tnList = @()
@@ -411,7 +748,6 @@ function Invoke-TailpetSsh {
         if (-not $sel) { return }
         $si = [int]$sel - 1
         if ($si -lt $tnList.Count) {
-            # tailnet 节点：直连
             $p = $tnList[$si]
             $u = Get-UserFor $p.IP $userParam
             $input_u = Read-Host "ssh 用户 [默认 $u]"
@@ -420,42 +756,69 @@ function Invoke-TailpetSsh {
             Write-Output ">>> ssh -i <管理钥> $u@$($p.IP)"
             & ssh -i $KEY "$u@$($p.IP)"
         } else {
-            # 注册表机器
             $m = $machines[$si - $tnList.Count]
-            if ($m.type -eq 'lan') {
-                # C 类：先进 B 再进 C（-t 保持终端）
-                $jumpNode = Resolve-Node $m.jump (Get-NodesJson)
-                if (-not $jumpNode) { Write-Output "!! 跳板 B 未找到: $($m.jump)"; return }
-                $jumpIp = (@($jumpNode.ip_addresses) | Where-Object { $_ -match '^100\.' } | Select-Object -First 1)
-                $ju = Get-UserFor $jumpIp $null
-                Write-Output ">>> 经 B($($m.jump)) 跳转到 C($($m.name)) ..."
-                & ssh -t -i $KEY "$ju@$jumpIp" "ssh $($m.user)@$($m.ip)"
-            } else {
-                # 公网直连
-                Write-Output ">>> ssh -i <管理钥> $($m.user)@$($m.ip)"
-                & ssh -i $KEY "$($m.user)@$($m.ip)"
-            }
+            $cand = [pscustomobject]@{ IP = $m.ip; Via = $m.type; User = $m.user; Jump = $m.jump }
+            Connect-Smart $cand $userParam | Out-Null
         }
         return
     }
 
-    # 按名/IP/ID 直连
-    $ip = $null; $hostn = $null
-    if ($nodeTok -match '^100\.\d+\.\d+\.\d+$') { $ip = $nodeTok }
-    else {
-        $nodes = Get-NodesJson
-        $n = Resolve-Node $nodeTok $nodes
-        if ($n) { $ip = (@($n.ip_addresses) | Where-Object { $_ -match '^100\.' } | Select-Object -First 1); $hostn = $n.name }
-    }
-    if (-not $ip) { Write-Output "!! 节点未找到: $nodeTok（tailpet nodes 查看）"; return }
-    $u = Get-UserFor $ip $userParam
-
-    if ($cmdParts.Count -eq 0) {
-        Write-Output ">>> ssh -i <管理钥> $u@$ip"
-        & ssh -i $KEY "$u@$ip"
+    # 按名/IP 智能降级连接
+    $candidates = Resolve-SshTarget $nodeTok
+    if (-not $candidates -or $candidates.Count -eq 0) {
+        Write-Output "!! 节点未找到: $nodeTok（tailpet nodes / machine list 查看）"
         return
     }
 
+    if ($candidates.Count -eq 1) {
+        # 单一候选：直接连（不探测）
+        $c = $candidates[0]
+        if ($cmdParts.Count -eq 0) {
+            Connect-Smart $c $userParam | Out-Null
+            return
+        }
+        # 远程执行
+        $u = if ($c.User) { $c.User } else { Get-UserFor $c.IP $userParam }
+        if ($userParam) { $u = $userParam }
+        $cmd = ($cmdParts -join ' ')
+        $isPs = $true
+        if ($cmd -match '^(whoami|hostname)(&|\s|$)' -or $cmd -match '&\s' -or $cmd -match '/bin/' -or $cmd -match '\bsudo\b' -or $cmd -match '^wsl ') { $isPs = $false }
+        if ($isPs) {
+            $psScript = '[Console]::OutputEncoding=[Text.Encoding]::UTF8; ' + $cmd
+            $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($psScript))
+            $wire = 'powershell -NoProfile -EncodedCommand ' + $enc
+        } else { $wire = $cmd }
+        $out = & ssh -i $KEY -o BatchMode=yes "$u@$($c.IP)" $wire 2>&1
+        $out | ForEach-Object { "$_" }
+        exit $LASTEXITCODE
+    }
+
+    # 多候选（pub + tailnet）：TCP 探测 → 选第一个通的
+    $selected = $null
+    foreach ($c in $candidates) {
+        if ($c.Via -eq 'lan') { $selected = $c; break }
+        Write-Output "  probing $($c.IP) ($($c.Via))..."
+        if (Test-SshReachable $c.IP 3) {
+            $selected = $c
+            Write-Output "  reachable ✓"
+            break
+        } else {
+            Write-Output "  unreachable ✗"
+        }
+    }
+    if (-not $selected) {
+        Write-Output "!! 所有路径均不可达:"
+        foreach ($c in $candidates) { Write-Output "    $($c.IP) ($($c.Via))" }
+        return
+    }
+
+    if ($cmdParts.Count -eq 0) {
+        Connect-Smart $selected $userParam | Out-Null
+        return
+    }
+    # 远程执行
+    $u = if ($selected.User) { $selected.User } else { Get-UserFor $selected.IP $userParam }
+    if ($userParam) { $u = $userParam }
     $cmd = ($cmdParts -join ' ')
     $isPs = $true
     if ($cmd -match '^(whoami|hostname)(&|\s|$)' -or $cmd -match '&\s' -or $cmd -match '/bin/' -or $cmd -match '\bsudo\b' -or $cmd -match '^wsl ') { $isPs = $false }
@@ -464,7 +827,7 @@ function Invoke-TailpetSsh {
         $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($psScript))
         $wire = 'powershell -NoProfile -EncodedCommand ' + $enc
     } else { $wire = $cmd }
-    $out = & ssh -i $KEY -o BatchMode=yes "$u@$ip" $wire 2>&1
+    $out = & ssh -i $KEY -o BatchMode=yes "$u@$($selected.IP)" $wire 2>&1
     $out | ForEach-Object { "$_" }
     exit $LASTEXITCODE
 }
