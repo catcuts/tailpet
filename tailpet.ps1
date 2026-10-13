@@ -173,17 +173,18 @@ function Get-Peers {
 function Get-UserFor([string]$ip, [string]$userParam) {
     if ($userParam) { return $userParam }
     $memoFile = Join-Path $pkgDir '.ssh_last.json'
-    $memo = @{}
-    if (Test-Path $memoFile) { $memo = Get-Content $memoFile -Raw -Encoding UTF8 | ConvertFrom-Json -AsHashtable }
-    if ($memo[$ip]) { return $memo[$ip] }
+    if (Test-Path $memoFile) {
+        $memo = Get-Content $memoFile -Raw -Encoding UTF8 | ConvertFrom-Json
+        $prop = $memo.PSObject.Properties[$ip]
+        if ($prop -and $prop.Value) { return $prop.Value }
+    }
     return 'administrator'
 }
 
 function Save-UserFor([string]$ip, [string]$u) {
     $memoFile = Join-Path $pkgDir '.ssh_last.json'
-    $memo = @{}
-    if (Test-Path $memoFile) { $memo = Get-Content $memoFile -Raw -Encoding UTF8 | ConvertFrom-Json -AsHashtable }
-    $memo[$ip] = $u
+    $memo = if (Test-Path $memoFile) { Get-Content $memoFile -Raw -Encoding UTF8 | ConvertFrom-Json } else { New-Object PSObject }
+    $memo | Add-Member -NotePropertyName $ip -NotePropertyValue $u -Force
     $memo | ConvertTo-Json | Set-Content $memoFile -Encoding UTF8
 }
 
@@ -204,7 +205,15 @@ function Resolve-SshTarget([string]$token) {
     $candidates = @()
 
     if ($token -match '^\d+\.\d+\.\d+\.\d+$') {
-        # 直接给 IP：判断类型
+        # 直接给 IP：先查注册表获取存储的用户名和类型
+        $regMachines = Get-Machines
+        foreach ($m in $regMachines) {
+            if ($m.ip -eq $token) {
+                $candidates += [pscustomobject]@{ IP = $m.ip; Via = $m.type; User = $m.user; Jump = $m.jump }
+                return $candidates
+            }
+        }
+        # 注册表没匹配：按 IP 段判断类型
         if ($token -match '^100\.') {
             $candidates += [pscustomobject]@{ IP = $token; Via = 'tailnet'; User = $null }
         } else {
@@ -250,7 +259,11 @@ function Connect-Smart([object]$candidate, [string]$userParam) {
         return $true
     }
 
-    $u = if ($candidate.User) { $candidate.User } else { Get-UserFor $candidate.IP $userParam }
+    # .ssh_last.json 优先（用户上次选择），注册表值作默认
+    $memo = Get-UserFor $candidate.IP $null
+    $regDefault = if ($candidate.User) { $candidate.User } else { 'administrator' }
+    $u = if ($memo -ne 'administrator') { $memo } else { $regDefault }
+    if ($userParam) { $u = $userParam }
     if ($userParam) { $u = $userParam }
     Write-Output ">>> ssh -i <管理钥> $u@$($candidate.IP) (via $($candidate.Via))"
     & ssh -i $KEY "$u@$($candidate.IP)"
@@ -369,6 +382,8 @@ function Do-GenPrompt {
         if (-not $item.User) { $item.User = 'administrator' }
         $inputU = Read-Host "SSH 用户 [默认 $($item.User)]"
         if ($inputU) { $item.User = $inputU }
+        # 保存用户选择，tailpet ssh 连接时自动使用
+        Save-UserFor $item.IP $item.User
     }
 
     # 生成文本
@@ -420,24 +435,26 @@ function Build-PromptText($item) {
         $lines += '## ' + $item.Name
         $lines += '- **Tailnet IP**: ' + $item.IP
         $lines += '- **SSH 用户**: ' + $item.User
-        $lines += '- **连接**: `tailpet ssh ' + $item.Name + '`'
-        $lines += '- **远程执行**: `tailpet ssh ' + $item.Name + ' "命令"`'
+        $lines += '- **进入交互终端**: `tailpet ssh ' + $item.Name + '`'
+        $lines += '- **远程执行命令**: `tailpet ssh ' + $item.Name + ' "命令"`'
     }
     elseif ($item.Type -eq 'pub') {
         $lines += '## ' + $item.Name
         $lines += '- **IP**: ' + $item.IP + '（公网）'
         $lines += '- **SSH 用户**: ' + $item.User
-        $lines += '- **连接**: `tailpet ssh ' + $item.Name + '`'
-        $lines += '- **远程执行**: `tailpet ssh ' + $item.Name + ' "命令"`'
+        $lines += '- **进入交互终端**: `tailpet ssh ' + $item.Name + '`'
+        $lines += '- **远程执行命令**: `tailpet ssh ' + $item.Name + ' "命令"`'
     }
     elseif ($item.Type -eq 'lan') {
         $lines += '## ' + $item.Name
         $lines += '- **LAN IP**: ' + $item.IP + '（经 ' + $item.Jump + ' 跳板）'
         $lines += '- **SSH 用户**: ' + $item.User
-        $lines += '- **连接**: `tailpet ssh ' + $item.Name + '`'
-        $lines += '- **远程执行**: `tailpet ssh ' + $item.Name + ' "命令"`'
+        $lines += '- **进入交互终端**: `tailpet ssh ' + $item.Name + '`'
+        $lines += '- **远程执行命令**: `tailpet ssh ' + $item.Name + ' "命令"`'
     }
-    $lines += '- **注意**: Windows + PowerShell 5.1；复杂命令建议先落盘 .ps1；中文按 GBK 解码'
+    $lines += '- **注意**: '
+$lines += '    - tailpet = 本机已安装的组网管理 CLI（PATH 全局可用）不是拼写错误'
+$lines += '    - Windows + PowerShell 5.1；复杂命令建议先落盘 .ps1；中文按 GBK 解码'
     return ($lines -join "`n")
 }
 
@@ -451,45 +468,6 @@ function Test-SshReachable([string]$ip, [int]$timeoutSec = 3) {
     } finally { $tcp.Close() }
 }
 
-function Resolve-SshTarget([string]$token) {
-    # 返回候选路径列表（pub 优先，tailnet 兜底）
-    $candidates = @()
-
-    if ($token -match '^\d+\.\d+\.\d+\.\d+$') {
-        # 直接给 IP：判断类型
-        if ($token -match '^100\.') {
-            $candidates += [pscustomobject]@{ IP = $token; Via = 'tailnet'; User = $null }
-        } else {
-            $candidates += [pscustomobject]@{ IP = $token; Via = 'pub'; User = $null }
-        }
-        return $candidates
-    }
-
-    # 名字：查注册表（pub 优先）
-    $machines = Get-Machines
-    foreach ($m in $machines) {
-        if ($m.name -ieq $token) {
-            if ($m.type -eq 'pub') {
-                $candidates += [pscustomobject]@{ IP = $m.ip; Via = 'pub'; User = $m.user }
-            } elseif ($m.type -eq 'lan') {
-                $candidates += [pscustomobject]@{ IP = $m.ip; Via = 'lan'; User = $m.user; Jump = $m.jump }
-                return $candidates  # lan 无降级
-            }
-            break
-        }
-    }
-
-    # 名字：查 tailnet 节点
-    $nodes = Get-NodesJson
-    $n = Resolve-Node $token $nodes
-    if ($n) {
-        $ip = (@($n.ip_addresses) | Where-Object { $_ -match '^100\.' } | Select-Object -First 1)
-        if ($ip) { $candidates += [pscustomobject]@{ IP = $ip; Via = 'tailnet'; User = $null } }
-    }
-
-    return $candidates
-}
-
 function Connect-Smart([object]$candidate, [string]$userParam) {
     # 根据候选类型连接，返回 $true 成功 / $false 失败
     if ($candidate.Via -eq 'lan') {
@@ -502,7 +480,11 @@ function Connect-Smart([object]$candidate, [string]$userParam) {
         return $true
     }
 
-    $u = if ($candidate.User) { $candidate.User } else { Get-UserFor $candidate.IP $userParam }
+    # .ssh_last.json 优先（用户上次选择），注册表值作默认
+    $memo = Get-UserFor $candidate.IP $null
+    $regDefault = if ($candidate.User) { $candidate.User } else { 'administrator' }
+    $u = if ($memo -ne 'administrator') { $memo } else { $regDefault }
+    if ($userParam) { $u = $userParam }
     if ($userParam) { $u = $userParam }
     Write-Output ">>> ssh -i <管理钥> $u@$($candidate.IP) (via $($candidate.Via))"
     & ssh -i $KEY "$u@$($candidate.IP)"
@@ -621,6 +603,8 @@ function Do-GenPrompt {
         if (-not $item.User) { $item.User = 'administrator' }
         $inputU = Read-Host "SSH 用户 [默认 $($item.User)]"
         if ($inputU) { $item.User = $inputU }
+        # 保存用户选择，tailpet ssh 连接时自动使用
+        Save-UserFor $item.IP $item.User
     }
 
     # 生成文本
@@ -664,48 +648,6 @@ function New-MachineInteractive {
     }
     return $null
 }
-
-function Build-PromptText($item) {
-    $keyPath = '~/.ssh/id_ed25519_voerka'
-    $lines = @()
-
-    if ($item.Type -eq 'tailnet') {
-        $lines += '## B 机连接信息：' + $item.Name
-        $lines += '- **Tailnet IP**: ' + $item.IP
-        $lines += '- **SSH 用户**: ' + $item.User
-        $lines += '- **SSH 密钥**: ' + $keyPath
-        $lines += '- **连接**:'
-        $lines += '  - `tailpet ssh ' + $item.Name + '`（交互进入）'
-        $lines += '  - `tailpet ssh ' + $item.Name + ' "命令"`（远程执行，支持 PowerShell 语法，自动处理编码/转义）'
-        $lines += '  - `ssh -i ' + $keyPath + ' ' + $item.User + '@' + $item.IP + '`'
-        $lines += '- **系统**: Windows'
-        $lines += '- **注意**: 远程执行 PS 命令建议用 EncodedCommand 避免转义；中文输出按 GBK 解码'
-    }
-    elseif ($item.Type -eq 'pub') {
-        $lines += '## 公网直连机器：' + $item.Name
-        $lines += '- **公网 IP**: ' + $item.IP
-        $lines += '- **SSH 用户**: ' + $item.User
-        $lines += '- **SSH 密钥**: ' + $keyPath
-        $lines += '- **连接**:'
-        $lines += '  - `tailpet ssh ' + $item.Name + '`（交互进入）'
-        $lines += '  - `tailpet ssh ' + $item.Name + ' "命令"`（远程执行，支持 PowerShell 语法，自动处理编码/转义）'
-        $lines += '  - `ssh -i ' + $keyPath + ' ' + $item.User + '@' + $item.IP + '`'
-        $lines += '- **注意**: Windows + PowerShell 5.1；复杂命令建议先落盘 .ps1 再执行；中文输出按 GBK 解码'
-    }
-    elseif ($item.Type -eq 'lan') {
-        $lines += '## C 机连接信息：' + $item.Name + '（经 ' + $item.Jump + ' 跳板）'
-        $lines += '- **跳板 B**: ' + $item.Jump
-        $lines += '- **C 的 LAN IP**: ' + $item.IP
-        $lines += '- **C 的 SSH 用户**: ' + $item.User
-        $lines += '- **连接**:'
-        $lines += '  - `tailpet ssh ' + $item.Name + '`（一条命令直达，自动经 B 跳板）'
-        $lines += '  1. 或手动先进 B：`tailpet ssh ' + $item.Jump + '`'
-        $lines += '  2. 再进 C：`ssh ' + $item.User + '@' + $item.IP + '`（B 上有默认密钥，免密直达）'
-        $lines += '- **注意**: C 不入 tailnet；C 必须有密码的 Windows 账户'
-    }
-    return ($lines -join "`n")
-}
-
 
 function Invoke-TailpetSsh {
     # 形态1: tailpet ssh            交互选择器
@@ -758,7 +700,7 @@ function Invoke-TailpetSsh {
         } else {
             $m = $machines[$si - $tnList.Count]
             $cand = [pscustomobject]@{ IP = $m.ip; Via = $m.type; User = $m.user; Jump = $m.jump }
-            Connect-Smart $cand $userParam | Out-Null
+            Connect-Smart $cand $userParam
         }
         return
     }
@@ -774,19 +716,16 @@ function Invoke-TailpetSsh {
         # 单一候选：直接连（不探测）
         $c = $candidates[0]
         if ($cmdParts.Count -eq 0) {
-            Connect-Smart $c $userParam | Out-Null
+            Connect-Smart $c $userParam
             return
         }
         # 远程执行
-        $u = if ($c.User) { $c.User } else { Get-UserFor $c.IP $userParam }
-        if ($userParam) { $u = $userParam }
+        $u = Get-UserFor $c.IP $userParam
         $cmd = ($cmdParts -join ' ')
         $isPs = $true
-        if ($cmd -match '^(whoami|hostname)(&|\s|$)' -or $cmd -match '&\s' -or $cmd -match '/bin/' -or $cmd -match '\bsudo\b' -or $cmd -match '^wsl ') { $isPs = $false }
+        if ($cmd -match '^(whoami|hostname)(&|\s|$)' -or $cmd -match '&\s' -or $cmd -match '/bin/' -or $cmd -match '\bsudo\b' -or $cmd -match '^wsl ') { $isPs = false; $isPs = $false }
         if ($isPs) {
-            $psScript = '[Console]::OutputEncoding=[Text.Encoding]::UTF8; ' + $cmd
-            $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($psScript))
-            $wire = 'powershell -NoProfile -EncodedCommand ' + $enc
+            $wire = $cmd
         } else { $wire = $cmd }
         $out = & ssh -i $KEY -o BatchMode=yes "$u@$($c.IP)" $wire 2>&1
         $out | ForEach-Object { "$_" }
@@ -813,20 +752,13 @@ function Invoke-TailpetSsh {
     }
 
     if ($cmdParts.Count -eq 0) {
-        Connect-Smart $selected $userParam | Out-Null
+        Connect-Smart $selected $userParam
         return
     }
     # 远程执行
-    $u = if ($selected.User) { $selected.User } else { Get-UserFor $selected.IP $userParam }
-    if ($userParam) { $u = $userParam }
+    $u = Get-UserFor $selected.IP $userParam
     $cmd = ($cmdParts -join ' ')
-    $isPs = $true
-    if ($cmd -match '^(whoami|hostname)(&|\s|$)' -or $cmd -match '&\s' -or $cmd -match '/bin/' -or $cmd -match '\bsudo\b' -or $cmd -match '^wsl ') { $isPs = $false }
-    if ($isPs) {
-        $psScript = '[Console]::OutputEncoding=[Text.Encoding]::UTF8; ' + $cmd
-        $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($psScript))
-        $wire = 'powershell -NoProfile -EncodedCommand ' + $enc
-    } else { $wire = $cmd }
+    $wire = $cmd
     $out = & ssh -i $KEY -o BatchMode=yes "$u@$($selected.IP)" $wire 2>&1
     $out | ForEach-Object { "$_" }
     exit $LASTEXITCODE

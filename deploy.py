@@ -439,7 +439,10 @@ def cmd_gen_b():
             z.write(os.path.join(HERE, 'bootstrap', 'START-LAN-SSH.bat'), 'START-LAN-SSH.bat')
             z.write(os.path.join(HERE, 'bootstrap', 'LAN-SSH-Setup.ps1.template'), 'LAN-SSH-Setup.ps1.template')
             z.write(os.path.join(HERE, 'bootstrap', 'START-PUB-SSH.bat'), 'START-PUB-SSH.bat')
-            z.write(os.path.join(HERE, 'bootstrap', 'PUB-SSH-Setup.ps1.template'), 'PUB-SSH-Setup.ps1.template')
+            # 预渲染 PUB 脚本（A 公钥在生成时已知，直接注入，用户双击即用）
+            pubtpl = open(os.path.join(HERE, 'bootstrap', 'PUB-SSH-Setup.ps1.template'), encoding='utf-8').read()
+            pubrendered = pubtpl.replace('{{A_PUBKEY}}', pub)
+            z.writestr('PUB-SSH-Setup.ps1', pubrendered)
             for n in need:
                 z.write(os.path.join(CACHE, n), n)
             z.write(path, 'tailpet-b.ps1')
