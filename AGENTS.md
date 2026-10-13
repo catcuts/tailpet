@@ -29,7 +29,7 @@
 | 角色 | 机器 | 状态 |
 |---|---|---|
 | S | 腾讯云 Windows（IP/domain 见 params.json） | headscale v0.29.4 + :8443 portproxy + ACL + 证书自动续期，运行中 |
-| A | 本机（desktop-j0ouoe2，节点 a-main / 100.64.0.1） | tailpet 已安装（`%LOCALAPPDATA%\tailpet`），全局命令可用 |
+| A | 管理机（tailpet 所在机器） | tailpet 已安装，全局命令可用 |
 | B 类 | 各被管设备（名称/IP 见 tailpet nodes） | 已入网 |
 
 
