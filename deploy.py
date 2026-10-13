@@ -443,6 +443,19 @@ def cmd_gen_b():
             pubtpl = open(os.path.join(HERE, 'bootstrap', 'PUB-SSH-Setup.ps1.template'), encoding='utf-8').read()
             pubrendered = pubtpl.replace('{{A_PUBKEY}}', pub)
             z.writestr('PUB-SSH-Setup.ps1', pubrendered)
+            # Linux 版 B 引导（预渲染 authkey + A 公钥）
+            bsh = open(os.path.join(HERE, 'bootstrap', 'START-B.sh.template'), encoding='utf-8').read()
+            bsh_rendered = (bsh.replace('{{SERVER}}', f'https://{DOMAIN}:{CPORT}')
+                                .replace('{{AUTHKEY}}', key)
+                                .replace('{{EXPIRES}}', expires)
+                                .replace('{{A_PUBKEY}}', pub))
+            z.writestr('START-B.sh', bsh_rendered)
+            # Linux 版 PUB sshd 引导（预渲染 A 公钥）
+            psh = open(os.path.join(HERE, 'bootstrap', 'START-PUB-SSH.sh.template'), encoding='utf-8').read()
+            psh_rendered = psh.replace('{{A_PUBKEY}}', pub)
+            z.writestr('START-PUB-SSH.sh', psh_rendered)
+            # Linux 版 LAN sshd 引导（模板，需 B 公钥 → make-c-zip 渲染）
+            z.write(os.path.join(HERE, 'bootstrap', 'START-LAN-SSH.sh.template'), 'START-LAN-SSH.sh.template')
             for n in need:
                 z.write(os.path.join(CACHE, n), n)
             z.write(path, 'tailpet-b.ps1')
