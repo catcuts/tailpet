@@ -8,5 +8,8 @@ out/
 # 杂物
 __pycache__/
 *.pyc
-cache/
+/cache/
 .machines.json
+.tunnels.json
+hub-admin.txt
+agents/
