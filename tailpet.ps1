@@ -1058,7 +1058,7 @@ function Build-PromptText($item, $jumpInfo) {
         $lines += '- **Web 服务访问**: `tailpet tunnel ' + $item.Name + '` —— 自动分配隧道端口并在 A 本机浏览器打开 `127.0.0.1:<隧道端口>`，默认转发该机 80 端口的网页（web 服务在其它端口时：`tailpet tunnel ' + $item.Name + ' <远端端口>`）；操作页面使用 kimi-webbridge 技能；停止 `tailpet tunnel-stop <隧道端口>`'
     }
     elseif ($item.Type -eq 'agent') {
-        $lines += '## ' + $item.Name + '（agent 模式）信息：'
+        $lines += $item.Name + '（agent 模式）'
         $lines += ''
         $lines += '- **连接方式**: 经 hub 中转（出站长轮询，无需开放入站端口）。'
         $lines += ''
