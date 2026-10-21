@@ -250,7 +250,7 @@ function Get-FreePort {
 
 function Do-Tunnel([string]$token, [string]$rport = '80', [string]$lport = '', [string]$targetHost = '', [switch]$NoBrowse) {
     if (-not $token) {
-        Write-Output 'usage: tailpet tunnel <机器名> [远端端口=80] [本地端口=自动] [目标IP=该机本机]'
+        Write-Output 'usage: tailpet tunnel <机器名> [远端端口=80] [本地端口=自动] [目标IP=该机本机]   （tailpet tunnel-list 查看活动隧道）'
         Write-Output '  把该机器可访问的 web 端口转发到 A 本机并打开浏览器；agent 机经 hub 中继（B 出站拨中继，零入站）'
         return
     }
@@ -505,6 +505,24 @@ function Do-AgentList {
     if (-not $any) { Write-Output '(无 agent 机器 — tailpet agent add 新增)' }
 }
 
+
+function Do-TunnelList {
+    $tunnels = @(Get-Tunnels)
+    if ($tunnels.Count -eq 0) { Write-Output '(无活动隧道 — tailpet tunnel <名> <端口> 建立)'; return }
+    Write-Output ('{0,-9} {1,-40} {2,-9} {3} {4}' -f '本地端口', '目标', '方式', '建立', '状态')
+    $aliveList = @()
+    foreach ($t in $tunnels) {
+        $alive = $false
+        try { $alive = [bool](Get-Process -Id ([int]$t.pid) -ErrorAction Stop) } catch { }
+        if ($alive) {
+            $aliveList += $t
+            Write-Output ('{0,-9} {1,-40} {2,-9} {3} 运行中' -f $t.port, $t.target, $t.via, $t.started)
+        } else {
+            Write-Output ('{0,-9} {1,-40} {2,-9} {3} 已失联（自动清理）' -f $t.port, $t.target, $t.via, $t.started)
+        }
+    }
+    if ($aliveList.Count -ne $tunnels.Count) { Set-Tunnels $aliveList }  # 顺手清掉失联记录
+}
 
 function Do-TunnelStop([string]$lport) {
     $tunnels = @(Get-Tunnels)
@@ -1044,7 +1062,7 @@ function Build-PromptText($item, $jumpInfo) {
         $lines += '- **连接方式**: 经 hub 中转（出站长轮询，无需开放入站端口）'
         $lines += '- **执行命令**: `tailpet agent exec ' + $item.Name + ' <命令>` —— 在该机 cmd 里执行，非交互，120 秒超时'
         $lines += '- **该机内网 C 机**: `tailpet agent exec ' + $item.Name + ' "ssh-c 用户@C_IP 命令"` —— C 需已装 sshd 并持有该机公钥（公钥在 hub /metas 的 pubkey 字段，或该机 `type C:\ProgramData\tailpet\keys\id_ed25519.pub`）'
-        $lines += '- **Web 服务访问**: `tailpet tunnel ' + $item.Name + ' <端口>`；该机内网其它机器 `tailpet tunnel ' + $item.Name + ' <端口> <本地端口> <目标IP>`；停止 `tailpet tunnel-stop <本地端口>`'
+        $lines += '- **Web 服务访问**: `tailpet tunnel ' + $item.Name + ' <端口>` —— 自动分配本地端口建中继并打开浏览器（同目标重复执行自动复用）；默认转该机 127.0.0.1，服务只绑该机内网 IP 时用 `tailpet tunnel ' + $item.Name + ' <端口> <本地端口> <目标IP>` 指定；查看活动隧道 `tailpet tunnel-list`；停止 `tailpet tunnel-stop [本地端口]`（不带参数=全部）'
         $lines += '- **命令规则**: 单行（多步用 && 串联）；引号最多一层；交互确认一律加静默参数；`!` 会被吞掉；不要 chcp 65001'
         $lines += '- **注意**: agent 模式不支持 ssh 交互登录'
     }
@@ -1221,6 +1239,7 @@ switch ($Cmd.ToLower()) {
         else { Write-Output 'usage: tailpet agent add [名] | rm <名> | list | exec <名> <命令...>' }
     }
     'tunnel-stop' { if ($Rest.Count -gt 0) { Do-TunnelStop "$($Rest[0])" } else { Do-TunnelStop } }
+    'tunnel-list' { Do-TunnelList }
     'gen-prompt'   { Do-GenPrompt }
     'machine'      {
         $sub = "$($Rest[0])"
