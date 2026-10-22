@@ -418,12 +418,13 @@ function Get-AgentMetas {
     } catch { return $null }
 }
 
-function Do-AgentExec([string]$name, [string]$cmd) {
+function Do-AgentExec([string]$name, [string]$cmd, [int]$TimeoutSec = 0) {
     # agent exec <名> <命令>：经 hub 下发命令并等待结果（非交互）
-    if (-not $name -or -not $cmd) { Write-Output 'usage: tailpet agent exec <名> <命令...>'; return }
+    if (-not $name -or -not $cmd) { Write-Output 'usage: tailpet agent exec <名> [-Timeout 秒] <命令...>'; return }
     # cmd /c + PS -File 会把包裹引号原样带进来，剥掉对称的一对
     $cmd = $cmd.Trim()
     if ($cmd.Length -ge 2 -and $cmd[0] -eq '"' -and $cmd[$cmd.Length - 1] -eq '"') { $cmd = $cmd.Substring(1, $cmd.Length - 2).Trim() }
+    $internalOnly = $cmd.StartsWith('__')
     $metas = Get-AgentMetas
     if (-not $metas) { Write-Output '!! hub 不可达或无 agent'; return }
     $hit = $null
@@ -438,11 +439,16 @@ function Do-AgentExec([string]$name, [string]$cmd) {
     # 清旧结果 + 下发 cmd（hub admin API）
     $adminFile = Join-Path $env:LOCALAPPDATA 'tailpet\hub-admin.txt'
     $adminToken = (Get-Content $adminFile -Raw).Trim()
-    $payload = '{"c":' + ($cmd | ConvertTo-Json -Compress) + '}'
+    $send = $cmd
+    if ($TimeoutSec -gt 0) { $send = '__timeout ' + $TimeoutSec + "\n" + $cmd }
+    $payload = '{"c":' + ($send | ConvertTo-Json -Compress) + '}'
     $r1 = Invoke-WebRequest -UseBasicParsing -TimeoutSec 10 -Uri ('http://' + $P.server.host + ':8443/cmdset?admin=' + $adminToken + '&id=' + $id) -Method POST -Body $payload -ContentType 'application/json'
     $t0 = [DateTimeOffset]::Now.ToUnixTimeSeconds()
-    for ($i = 0; $i -lt 24; $i++) {
+    $budget = 130
+    if ($TimeoutSec -gt 0) { $budget = $TimeoutSec + 60 }
+    for ($i = 0; $i -lt ([int]($budget / 5)); $i++) {
         Start-Sleep 5
+        if ($internalOnly) { Write-Output '已下发（内部指令，后台执行）'; return }
         $res = $null
         try {
             $resp = Invoke-WebRequest -UseBasicParsing -TimeoutSec 10 -Uri ('http://' + $P.server.host + ':8443/result?id=' + $id + '&admin=' + $adminToken)
@@ -455,7 +461,20 @@ function Do-AgentExec([string]$name, [string]$cmd) {
             return
         }
     }
-    Write-Output '!! 超时未收到结果（agent 离线或未上线）'
+    $online = $false
+    try {
+        $m2 = Get-AgentMetas
+        if ($m2) {
+            foreach ($kv in $m2.PSObject.Properties) {
+                if ($kv.Name -eq $id -and $kv.Value.lastSeen -and (([DateTimeOffset]::Now.ToUnixTimeSeconds()) - [long]$kv.Value.lastSeen) -lt 120) { $online = $true }
+            }
+        }
+    } catch { }
+    if ($online) {
+        Write-Output '!! 超时未收到结果（agent 在线）—— 命令可能仍在执行或已被超时强制终止（默认 120s，-Timeout N 可放宽）；大输出请重定向到文件后 tailpet file get 取回'
+    } else {
+        Write-Output '!! 超时未收到结果（agent 离线）—— 检查该机网络与 agent 任务'
+    }
 }
 
 function Do-AgentRm([string]$name) {
@@ -486,6 +505,89 @@ function Do-AgentRm([string]$name) {
     $adminToken = (Get-Content $adminFile -Raw).Trim()
     Invoke-WebRequest -UseBasicParsing -TimeoutSec 10 -Uri ('http://' + $P.server.host + ':8443/purge?admin=' + $adminToken + '&id=' + $hit.id) -Method POST -Body '{}' | Out-Null
     Write-Output "已吊销: $name（hub 状态已删除，该机 agent 将无法继续通信）"
+}
+
+function Get-AgentIdByName([string]$name) {
+    $metas = Get-AgentMetas
+    if ($metas) {
+        foreach ($kv in $metas.PSObject.Properties) { if ($kv.Value.name -ieq $name) { return $kv.Name } }
+    }
+    return $null
+}
+
+function Do-FileList([string]$name) {
+    if (-not $name) { Write-Output 'usage: tailpet file list <机器名>'; return }
+    $id = Get-AgentIdByName $name
+    if (-not $id) { Write-Output "!! agent 不存在: $name"; return }
+    $adminToken = (Get-Content (Join-Path $env:LOCALAPPDATA 'tailpet\hub-admin.txt') -Raw).Trim()
+    $resp = Invoke-WebRequest -UseBasicParsing -TimeoutSec 30 -Uri ('http://' + $P.server.host + ':8443/files?admin=' + $adminToken + '&id=' + $id)
+    $files = $resp.Content | ConvertFrom-Json
+    if (-not $files -or @($files).Count -eq 0) { Write-Output '(该机 hub 无暂存文件)'; return }
+    Write-Output ('{0,-44} {1,12} {2}' -f 'NAME', 'SIZE', 'TIME')
+    foreach ($f in @($files)) {
+        Write-Output ('{0,-44} {1,12} {2}' -f $f.name, $f.size, ([DateTimeOffset]::FromUnixTimeSeconds([long]$f.mtime).LocalDateTime.ToString('MM-dd HH:mm')))
+    }
+}
+
+function Do-FileGet([string]$name, [string]$remotePath, [string]$localPath) {
+    if (-not $name -or -not $remotePath) { Write-Output 'usage: tailpet file get <机器名> <该机文件路径> [本地保存路径]'; return }
+    $id = Get-AgentIdByName $name
+    if (-not $id) { Write-Output "!! agent 不存在: $name"; return }
+    $rname = 'f' + (Get-Date -Format 'yyyyMMddHHmmss')
+    $adminToken = (Get-Content (Join-Path $env:LOCALAPPDATA 'tailpet\hub-admin.txt') -Raw).Trim()
+    $tokById = ''
+    $metas2 = Get-AgentMetas
+    if ($metas2) { foreach ($kv in $metas2.PSObject.Properties) { if ($kv.Name -eq $id) { $tokById = $kv.Value.token } } }
+    $hubBase = 'http://' + $P.server.host + ':8443'
+    Write-Output '该机开始上传（worker 前台执行）...'
+    Do-AgentExec $name ('powershell -NoProfile -ExecutionPolicy Bypass -File ' + (Join-Path $env:ProgramData 'tailpet\filexfer.ps1') + ' -Mode up -Hub http://' + $P.server.host + ':8443 -Aid ' + $id + ' -Token ' + $tokById + ' -Name ' + $rname + ' -Path "' + $remotePath + '" -DataDir ' + $env:ProgramData + '\tailpet')
+    $filesUri = 'http://' + $P.server.host + ':8443/files?admin=' + $adminToken + '&id=' + $id
+    Write-Output "等待该机上传 $rname ..."
+    $found = $null
+    for ($i = 0; $i -lt 120; $i++) {
+        Start-Sleep 5
+        try {
+            $files = (Invoke-WebRequest -UseBasicParsing -TimeoutSec 20 -Uri $filesUri).Content | ConvertFrom-Json
+            foreach ($f in @($files)) { if ($f.name -eq $rname) { $found = $f; break } }
+        } catch { }
+        if ($found) { break }
+    }
+    if (-not $found) { Write-Output '!! 上传超时（10 分钟）—— 该机传输可能报错：tailpet agent exec 查看其 xfer-*.txt 状态'; return }
+    if (-not $localPath) { $localPath = Join-Path (Get-Location) $rname }
+    $dl = Invoke-WebRequest -UseBasicParsing -TimeoutSec 600 -Uri ('http://' + $P.server.host + ':8443/file?admin=' + $adminToken + '&id=' + $id + '&name=' + $rname)
+    [IO.File]::WriteAllBytes($localPath, $dl.Content)
+    Write-Output ("已取回: $localPath (" + $found.size + " bytes)")
+    Invoke-WebRequest -UseBasicParsing -TimeoutSec 30 -Uri ('http://' + $P.server.host + ':8443/filedel?admin=' + $adminToken + '&id=' + $id + '&name=' + $rname) -Method POST -Body '{}' -ContentType 'application/json' | Out-Null
+}
+
+function Do-FilePut([string]$name, [string]$localPath, [string]$remotePath) {
+    if (-not $name -or -not $localPath) { Write-Output 'usage: tailpet file put <机器名> <本地文件> [该机目标路径=spool\同名]'; return }
+    if (-not (Test-Path $localPath)) { Write-Output "!! 本地文件不存在: $localPath"; return }
+    $id = Get-AgentIdByName $name
+    if (-not $id) { Write-Output "!! agent 不存在: $name"; return }
+    $rname = 'f' + (Get-Date -Format 'yyyyMMddHHmmss')
+    $adminToken = (Get-Content (Join-Path $env:LOCALAPPDATA 'tailpet\hub-admin.txt') -Raw).Trim()
+    $base = 'http://' + $P.server.host + ':8443'
+    $bytes = [IO.File]::ReadAllBytes($localPath)
+    $chunk = 262144
+    $seq = 1
+    for ($off = 0; $off -lt $bytes.Length; $off += $chunk) {
+        $len = [Math]::Min($chunk, $bytes.Length - $off)
+        $slice = New-Object byte[] $len
+        [Array]::Copy($bytes, $off, $slice, 0, $len)
+        $uri = $base + '/filechunk?admin=' + $adminToken + '&id=' + $id + '&name=' + $rname + '&seq=' + $seq
+        Invoke-WebRequest -UseBasicParsing -TimeoutSec 180 -Uri $uri -Method POST -Body $slice -ContentType 'application/octet-stream' | Out-Null
+        $seq = $seq + 1
+    }
+    $done = (Invoke-WebRequest -UseBasicParsing -TimeoutSec 120 -Uri ($base + '/filedone?admin=' + $adminToken + '&id=' + $id + '&name=' + $rname + '&chunks=' + ($seq - 1)) -Method POST -Body '{}' -ContentType 'application/json').Content | ConvertFrom-Json
+    if (-not $remotePath) { $remotePath = 'C:' + [char]92 + 'ProgramData' + [char]92 + 'tailpet' + [char]92 + 'spool' + [char]92 + (Split-Path -Leaf $localPath) }
+    $sha8 = $done.sha256.Substring(0, 8)
+    Write-Output ("hub 已暂存 ($($done.size) bytes, sha $sha8...) —— 下发到该机 $remotePath")
+    $tokById = ''
+    $metas2 = Get-AgentMetas
+    if ($metas2) { foreach ($kv in $metas2.PSObject.Properties) { if ($kv.Name -eq $id) { $tokById = $kv.Value.token } } }
+    Do-AgentExec $name ('powershell -NoProfile -ExecutionPolicy Bypass -File ' + (Join-Path $env:ProgramData 'tailpet\filexfer.ps1') + ' -Mode dn -Hub http://' + $P.server.host + ':8443 -Aid ' + $id + ' -Token ' + $tokById + ' -Name ' + $rname + ' -Path "' + $remotePath + '" -DataDir ' + $env:ProgramData + '\tailpet')
+    Write-Output '已下发完成（如上 exit 0 即成功）—— 验证: tailpet agent exec <名> "type <目标路径>"'
 }
 
 function Do-AgentList {
@@ -1076,6 +1178,7 @@ function Build-PromptText($item, $jumpInfo) {
         $lines += '  - 查看用 `tailpet tunnel-list`；停止用 `tailpet tunnel-stop [本地端口]`（无参数=全部）。'
         $lines += ''
         $lines += '- **命令规则**: 单行（多步用 && 串联）；引号最多一层；交互确认一律加静默参数；`!` 会被吞掉；不要 chcp 65001。'
+        $lines += '- **大输出/文件**: 大输出命令一律重定向到该机文件再取回——`tailpet agent exec ' + $item.Name + ' "bigcmd > C:\ProgramData\tailpet\spool\out.log"` 然后 `tailpet file get ' + $item.Name + ' C:\ProgramData\tailpet\spool\out.log`；推文件 `tailpet file put ' + $item.Name + ' 本地文件`；大日志先 makecab 压缩；exec 直接回传只适合小结果（<50KB）；长命令加 `-Timeout 秒`'
         $lines += ''
         $lines += '- **注意**:'
         $lines += '    - tailpet = 本机已安装的组网管理 CLI（PATH 全局可用）不是拼写错误。'
@@ -1226,6 +1329,9 @@ tailpet v2.0 —— 自建组网管理 CLI（hub 控制面）
 agent：
   tailpet agent add [名]           新增 agent 机器（生成离线安装包）
   tailpet agent exec <名> <命令>   经 hub 下发命令并等待结果
+  tailpet file get <名> <该机文件>  取回该机文件（大输出先落盘再取）
+  tailpet file put <名> <本地文件>  推文件到该机
+  tailpet file list <名>            查看该机暂存于 hub 的文件
   tailpet agent list               agent 机器列表（含在线状态）
   tailpet agent rm [名]            吊销 agent（无参数=列表选择）
 
@@ -1255,13 +1361,26 @@ switch ($Cmd.ToLower()) {
         elseif ($sub -eq 'exec') {
             if ($Rest.Count -ge 3) {
                 $cmdRest = @($Rest | Select-Object -Skip 2)
-                Do-AgentExec "$($Rest[1])" ($cmdRest -join ' ')
-            } else { Write-Output 'usage: tailpet agent exec <名> <命令...>' }
+                $toSec = 0
+                $filtered = @()
+                for ($i = 0; $i -lt $cmdRest.Count; $i++) {
+                    if ("$($cmdRest[$i])" -eq '-Timeout' -and $i + 1 -lt $cmdRest.Count) { $toSec = [int]"$($cmdRest[$i+1])"; $i = $i + 1 }
+                    else { $filtered += "$($cmdRest[$i])" }
+                }
+                Do-AgentExec "$($Rest[1])" ($filtered -join ' ') $toSec
+            } else { Write-Output 'usage: tailpet agent exec <名> [-Timeout 秒] <命令...>' }
         }
         else { Write-Output 'usage: tailpet agent add [名] | rm <名> | list | exec <名> <命令...>' }
     }
     'tunnel-stop' { if ($Rest.Count -gt 0) { Do-TunnelStop "$($Rest[0])" } else { Do-TunnelStop } }
     'tunnel-list' { Do-TunnelList }
+    'file'       {
+        $sub = "$($Rest[0])"
+        if ($sub -eq 'list') { Do-FileList "$($Rest[1])" }
+        elseif ($sub -eq 'get') { Do-FileGet "$($Rest[1])" "$($Rest[2])" "$($Rest[3])" }
+        elseif ($sub -eq 'put') { Do-FilePut "$($Rest[1])" "$($Rest[2])" "$($Rest[3])" }
+        else { Write-Output 'usage: tailpet file list <名> | get <名> <该机文件> [本地路径] | put <名> <本地文件> [该机目标路径]' }
+    }
     'gen-prompt'   { Do-GenPrompt }
     'machine'      {
         $sub = "$($Rest[0])"

