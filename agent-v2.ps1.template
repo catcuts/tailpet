@@ -263,7 +263,7 @@ while ($true) {
                 } elseif ($ml -match '^__(fileup|filedn) ') {
                     $sp = @($ml -split ' ', 3)
                     if ($sp.Count -ge 3) {
-                        $xmode = $sp[0].Substring(2)
+                        $xmode = $sp[0].Substring(6)  # __fileup -> up, __filedn -> dn
                         $xname = $sp[1]
                         $xpath = $sp[2]
                         $wcmd = '& "' + (Join-Path $dataDir 'filexfer.ps1') + '" -Hub ' + $hub + ' -Aid ' + $aid + ' -Token ' + $token + ' -Mode ' + $xmode + ' -Name ' + $xname + ' -Path "' + $xpath + '" -DataDir "' + $dataDir + '"'

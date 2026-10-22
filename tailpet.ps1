@@ -440,7 +440,7 @@ function Do-AgentExec([string]$name, [string]$cmd, [int]$TimeoutSec = 0) {
     $adminFile = Join-Path $env:LOCALAPPDATA 'tailpet\hub-admin.txt'
     $adminToken = (Get-Content $adminFile -Raw).Trim()
     $send = $cmd
-    if ($TimeoutSec -gt 0) { $send = '__timeout ' + $TimeoutSec + "\n" + $cmd }
+    if ($TimeoutSec -gt 0) { $send = '__timeout ' + $TimeoutSec + "`n" + $cmd }
     $payload = '{"c":' + ($send | ConvertTo-Json -Compress) + '}'
     $r1 = Invoke-WebRequest -UseBasicParsing -TimeoutSec 10 -Uri ('http://' + $P.server.host + ':8443/cmdset?admin=' + $adminToken + '&id=' + $id) -Method POST -Body $payload -ContentType 'application/json'
     $t0 = [DateTimeOffset]::Now.ToUnixTimeSeconds()
