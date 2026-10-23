@@ -13,6 +13,7 @@
 ### B → 内网 C 机（OpenSSH 内嵌）
 - agent 安装包内嵌离线 OpenSSH 客户端（v1 缓存复用，2008 R2 实测可用）：装完即有 `ssh-c`，`tailpet agent exec 公司B "ssh-c user@C_IP 命令"` 直达 C 机
 - 密钥自动生成（ed25519，ACL 收紧至 SYSTEM+Administrators），公钥随心跳上报 hub（/metas 的 pubkey 字段）
+- `tailpet file get/put/list`：文件经 hub 分块中转（256KB 分块、SHA-256、异步解耦——B 传完即可离线，A 随时取；实测 10MB/~16s，速率取决于站点上行）
 
 ### 体验与健壮
 - `tailpet agent add` 幂等升级：同名复用 id/token 按当前模板重新打包（已部署 B 无缝升级，不断线不产生幽灵）

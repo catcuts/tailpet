@@ -78,6 +78,8 @@ agent 首次心跳即在 hub 自动注册，A 侧立即可见可用。
 tailpet agent list                        # agent 表（在线状态/最后心跳）
 tailpet agent exec 公司B "ipconfig /all"   # 远程执行（经 hub 下发，非交互）
 tailpet agent exec 公司B "ssh-c root@192.168.38.202 uname -a"   # 操作 B 内网的 C 机（C 需装 sshd 并持有 B 的公钥）
+tailpet file get 公司B C:\ProgramData\tailpet\spool\out.log   # 取回该机文件（大输出先落盘再取）
+tailpet file put 公司B 本地文件 [该机目标路径]                 # 推文件到该机（hub 分块中转，异步）
 tailpet ssh 公司B "hostname"               # 同上（agent 机自动走 hub）
 tailpet ssh                               # 交互式选择机器
 tailpet nodes                             # 机器总表
@@ -104,8 +106,9 @@ tailpet agent rm <名>                      # 吊销 agent
 
 - 中继的每条连接在 B 上对应一个 worker 进程（约 20MB，空闲 10 分钟自动回收）——浏览器多连接会并行多个 worker
 - 新连接建立需经命令通道拾取（约 1~3 秒），建立后流式传输无此开销
-- 命令通道单命令排队：同时下发多条 exec 时后者覆盖前者（中继请求不受此限，独立队列捎带）
-- `agent exec` 为非交互单发；交互式场景请在 B 上直接操作或拆成多条命令
+- 命令通道单命令排队：同时下发多条 exec 时后者覆盖前者（file 中继请求不受此限，独立队列捎带）
+- `agent exec` 为非交互单发，默认 120 秒超时（`-Timeout N` 可放宽）；交互式场景请在 B 上直接操作或拆成多条命令
+- 大输出命令一律重定向到该机文件再 `file get` 取回——exec 直接回传只适合小结果（<50KB）
 
 ## 附：仓库地图
 
