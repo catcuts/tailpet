@@ -595,14 +595,14 @@ function Do-AgentList {
     $metas = Get-AgentMetas
     if ($null -eq $metas) { Write-Output '!! hub 不可达'; return }
     $now = [DateTimeOffset]::Now.ToUnixTimeSeconds()
-    Write-Output ('{0,-24} {1,-11} {2,-9} {3}' -f 'NAME', 'LAST SEEN', 'STATUS', 'ID')
+    Write-Output ((Format-Cell 'NAME' 26) + '  ' + (Format-Cell 'LAST SEEN' 13) + '  ' + (Format-Cell 'STATUS' 9) + 'ID')
     $any = $false
     foreach ($kv in $metas.PSObject.Properties) {
         $any = $true
         $m = $kv.Value
         $ls = if ($m.lastSeen) { ([DateTimeOffset]::FromUnixTimeSeconds([long]$m.lastSeen).LocalDateTime.ToString('MM-dd HH:mm')) } else { '-' }
         $online = if ($m.lastSeen -and ($now - [long]$m.lastSeen) -lt 90) { 'online' } else { 'offline' }
-        Write-Output ('{0,-24} {1,-11} {2,-9} {3}' -f $m.name, $ls, $online, ('id ' + $kv.Name))
+        Write-Output ((Format-Cell $m.name 26) + '  ' + (Format-Cell $ls 13) + '  ' + (Format-Cell $online 9) + ('id ' + $kv.Name))
     }
     if (-not $any) { Write-Output '(无 agent 机器 — tailpet agent add 新增)' }
 }
@@ -611,16 +611,16 @@ function Do-AgentList {
 function Do-TunnelList {
     $tunnels = @(Get-Tunnels)
     if ($tunnels.Count -eq 0) { Write-Output '(无活动隧道 — tailpet tunnel <名> <端口> 建立)'; return }
-    Write-Output ('{0,-9} {1,-40} {2,-9} {3} {4}' -f '本地端口', '目标', '方式', '建立', '状态')
+    Write-Output ((Format-Cell '本地端口' 10) + '  ' + (Format-Cell '目标' 38) + '  ' + (Format-Cell '方式' 10) + '建立  状态')
     $aliveList = @()
     foreach ($t in $tunnels) {
         $alive = $false
         try { $alive = [bool](Get-Process -Id ([int]$t.pid) -ErrorAction Stop) } catch { }
         if ($alive) {
             $aliveList += $t
-            Write-Output ('{0,-9} {1,-40} {2,-9} {3} 运行中' -f $t.port, $t.target, $t.via, $t.started)
+            Write-Output ((Format-Cell $t.port 10) + '  ' + (Format-Cell $t.target 38) + '  ' + (Format-Cell $t.via 10) + $t.started + '  运行中')
         } else {
-            Write-Output ('{0,-9} {1,-40} {2,-9} {3} 已失联（自动清理）' -f $t.port, $t.target, $t.via, $t.started)
+            Write-Output ((Format-Cell $t.port 10) + '  ' + (Format-Cell $t.target 38) + '  ' + (Format-Cell $t.via 10) + $t.started + '  已失联（自动清理）')
         }
     }
     if ($aliveList.Count -ne $tunnels.Count) { Set-Tunnels $aliveList }  # 顺手清掉失联记录
@@ -955,10 +955,10 @@ function Do-MachineRemove([string]$name) {
 function Do-MachineList {
     $machines = Get-Machines
     if (-not $machines -or $machines.Count -eq 0) { Write-Output '(注册表为空 — tailpet machine add 添加)'; return }
-    Write-Output ('{0,-20} {1,-16} {2,-16} {3,-6} {4}' -f 'NAME', 'IP', 'USER', 'TYPE', 'JUMP')
+    Write-Output ((Format-Cell 'NAME' 20) + ' ' + (Format-Cell 'IP' 16) + ' ' + (Format-Cell 'USER' 14) + ' ' + (Format-Cell 'TYPE' 6) + 'JUMP')
     for ($i = 0; $i -lt $machines.Count; $i++) {
         $m = $machines[$i]
-        Write-Output ('{0,-20} {1,-16} {2,-16} {3,-6} {4}' -f "$($m.name)", "$($m.ip)", "$($m.user)", "$($m.type)", "$($m.jump)")
+        Write-Output ((Format-Cell $m.name 20) + ' ' + (Format-Cell $m.ip 16) + ' ' + (Format-Cell $m.user 14) + ' ' + (Format-Cell $m.type 6) + $m.jump)
     }
 }
 
@@ -977,7 +977,7 @@ function Do-GenPrompt {
         $seen = if ($n.last_seen.seconds) { [DateTimeOffset]::FromUnixTimeSeconds($n.last_seen.seconds).LocalDateTime.ToString('MM-dd HH:mm') } else { '-' }
         $status = if ($n.online) { 'online' } else { 'offline' }
         $items += [pscustomobject]@{
-            Label = "$($disp.PadRight(20)) $($ip.PadRight(14)) $status  $seen  (节点)"
+            Label = (Format-Cell $disp 20) + ' ' + (Format-Cell $ip 14) + ' ' + $status + '  ' + $seen + '  (节点)'
             Type = 'tailnet'; IP = $ip; Name = $disp; User = $null; Jump = $null; GivenName = $disp
         }
     }
@@ -993,7 +993,7 @@ function Do-GenPrompt {
         }
         $dispName = if ($m.name -ieq $m.ip) { '(未命名)' } else { $m.name }
         $items += [pscustomobject]@{
-            Label = "$($dispName.PadRight(18)) $($m.ip.PadRight(16)) ($typeLabel)"
+            Label = (Format-Cell $dispName 18) + ' ' + (Format-Cell $m.ip 16) + ' (' + $typeLabel + ')'
             Type = $m.type; IP = $m.ip; Name = $m.name; User = $m.user; Jump = $m.jump; GivenName = $given
         }
     }
@@ -1006,7 +1006,7 @@ function Do-GenPrompt {
             $gm = $kv.Value
             $gon = if ($gm.lastSeen -and ($nowTs - [long]$gm.lastSeen) -lt 90) { 'online' } else { 'offline' }
             $items += [pscustomobject]@{
-                Label = "$($gm.name)  (agent, $gon)"
+                Label = (Format-Cell $gm.name 26) + '  (agent, ' + $gon + ')'
                 Type = 'agent'; IP = $gm.ip; Name = $gm.name; User = 'administrator'; Jump = ('hub:' + $kv.Name); GivenName = $null
             }
         }
@@ -1315,32 +1315,40 @@ function Invoke-Deploy {
 }
 
 function Show-Help {
-Write-Output @'
-tailpet v2.0 —— 自建组网管理 CLI（hub 控制面）
-
-日常：
-  tailpet ssh                      交互式选择机器进入
-  tailpet ssh <名> [命令...]        远程执行（agent 机自动经 hub 下发；其余走 ssh）
-  tailpet nodes                    机器总表（agent 含在线状态）
-  tailpet tunnel <名> [远端端口] [本地端口]   端口隧道：远端网页在 A 本机浏览器打开
-  tailpet tunnel-stop [本地端口]    停止隧道（不带参数=全部）
-  tailpet sync-alias               同步 C 类机器别名
-
-agent：
-  tailpet agent add [名]           新增 agent 机器（生成离线安装包）
-  tailpet agent exec <名> <命令>   经 hub 下发命令并等待结果
-  tailpet file get <名> <该机文件>  取回该机文件（大输出先落盘再取）
-  tailpet file put <名> <本地文件>  推文件到该机
-  tailpet file list <名>            查看该机暂存于 hub 的文件
-  tailpet agent list               agent 机器列表（含在线状态）
-  tailpet agent rm [名]            吊销 agent（无参数=列表选择）
-
-机器管理：
-  tailpet gen-prompt               交互式生成连接信息（自动复制到剪贴板）
-  tailpet machine list             查看本地机器注册表
-  tailpet machine add <名> <IP> [用户] [类型 pub|lan] [跳板名]
-  tailpet machine remove <名>      从注册表删除
-'@
+    # CJK 宽度感知对齐：命令列统一 46 列（Format-Cell），描述尾随
+    Write-Output 'tailpet v2.0 —— 自建组网管理 CLI（hub 控制面）'
+    Write-Output ''
+    $sections = @(
+        @('日常：', @(
+            @('tailpet ssh', '交互式选择机器进入'),
+            @('tailpet ssh <名> [命令...]', '远程执行（agent 机自动经 hub 下发；其余走 ssh）'),
+            @('tailpet nodes', '机器总表（agent 含在线状态）'),
+            @('tailpet tunnel <名> [远端端口] [本地端口]', '端口隧道：远端网页在 A 本机浏览器打开'),
+            @('tailpet tunnel-stop [本地端口]', '停止隧道（不带参数=全部）'),
+            @('tailpet sync-alias', '同步 C 类机器别名')
+        )),
+        @('agent：', @(
+            @('tailpet agent add [名]', '新增 agent 机器（生成离线安装包）'),
+            @('tailpet agent exec <名> <命令>', '经 hub 下发命令并等待结果'),
+            @('tailpet agent list', 'agent 机器列表（含在线状态）'),
+            @('tailpet agent rm [名]', '吊销 agent（无参数=列表选择）')
+        )),
+        @('机器管理：', @(
+            @('tailpet gen-prompt', '交互式生成连接信息（自动复制到剪贴板）'),
+            @('tailpet machine list', '查看本地机器注册表'),
+            @('tailpet machine add <名> <IP> [用户] [类型 pub|lan] [跳板名]', '注册机器'),
+            @('tailpet machine remove <名>', '从注册表删除')
+        ))
+    )
+    foreach ($sec in $sections) {
+        Write-Output $sec[0]
+        foreach ($l in $sec[1]) {
+            $pad = 46 - (Get-DisplayWidth $l[0])
+            if ($pad -lt 2) { Write-Output ('  ' + $l[0] + '  ' + $l[1]) }
+            else { Write-Output ('  ' + $l[0] + (' ' * $pad) + $l[1]) }
+        }
+        Write-Output ''
+    }
 }
 
 # ============ 分发 ============
@@ -1352,6 +1360,15 @@ switch ($Cmd.ToLower()) {
         $nb = $Rest -contains '-NoBrowse'
         $ta = @($Rest | Where-Object { "$_" -ne '-NoBrowse' })
         Do-Tunnel "$($ta[0])" "$($ta[1])" "$($ta[2])" "$($ta[3])" -NoBrowse:$nb
+    }
+    'tunnel-stop' { if ($Rest.Count -gt 0) { Do-TunnelStop "$($Rest[0])" } else { Do-TunnelStop } }
+    'tunnel-list' { Do-TunnelList }
+    'file'       {
+        $sub = "$($Rest[0])"
+        if ($sub -eq 'list') { Do-FileList "$($Rest[1])" }
+        elseif ($sub -eq 'get') { Do-FileGet "$($Rest[1])" "$($Rest[2])" "$($Rest[3])" }
+        elseif ($sub -eq 'put') { Do-FilePut "$($Rest[1])" "$($Rest[2])" "$($Rest[3])" }
+        else { Write-Output 'usage: tailpet file list <名> | get <名> <该机文件> [本地路径] | put <名> <本地文件> [该机目标路径]' }
     }
     'agent'      {
         $sub = "$($Rest[0])"
@@ -1371,15 +1388,6 @@ switch ($Cmd.ToLower()) {
             } else { Write-Output 'usage: tailpet agent exec <名> [-Timeout 秒] <命令...>' }
         }
         else { Write-Output 'usage: tailpet agent add [名] | rm <名> | list | exec <名> <命令...>' }
-    }
-    'tunnel-stop' { if ($Rest.Count -gt 0) { Do-TunnelStop "$($Rest[0])" } else { Do-TunnelStop } }
-    'tunnel-list' { Do-TunnelList }
-    'file'       {
-        $sub = "$($Rest[0])"
-        if ($sub -eq 'list') { Do-FileList "$($Rest[1])" }
-        elseif ($sub -eq 'get') { Do-FileGet "$($Rest[1])" "$($Rest[2])" "$($Rest[3])" }
-        elseif ($sub -eq 'put') { Do-FilePut "$($Rest[1])" "$($Rest[2])" "$($Rest[3])" }
-        else { Write-Output 'usage: tailpet file list <名> | get <名> <该机文件> [本地路径] | put <名> <本地文件> [该机目标路径]' }
     }
     'gen-prompt'   { Do-GenPrompt }
     'machine'      {
