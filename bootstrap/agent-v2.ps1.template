@@ -7,6 +7,7 @@ $hub = '{{HUB_URL}}'
 $aid = '{{AGENT_ID}}'
 $token = '{{TOKEN}}'
 $name = '{{NAME}}'
+$ver = '2.0'
 $dataDir = 'C:\ProgramData\tailpet'
 $taskName = 'tailpet-agent-v2-{{AGENT_ID}}'
 $selfPath = $MyInvocation.MyCommand.Path
@@ -327,7 +328,7 @@ while ($true) {
             $script:lastCal = $cur
         }
     }
-    HttpReq 'POST' $hbUrl ('{"name":' + (JsonStr $name) + ',"pubkey":' + (JsonStr $pubkey) + '}')
+    HttpReq 'POST' $hbUrl ('{"name":' + (JsonStr $name) + ',"ver":' + (JsonStr $ver) + ',"pubkey":' + (JsonStr $pubkey) + '}')
     } catch {
         # agent-side errors land in hub info.json (readable on S) - never vanish silently
         try { HttpReq 'POST' $calUrl ('{"agentErr":' + (JsonStr ("poll-loop: " + $_.Exception.Message)) + '}') } catch { }

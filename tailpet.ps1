@@ -68,12 +68,12 @@ function Get-MachineRows([switch]$ExcludeSelf) {
     # agent 机器（反向隧道经 S）：先列，其身后的 lan 挂树
     foreach ($m in ($allMachines | Where-Object { $_.type -eq 'agent' })) {
         $num++
-        $rows += [pscustomobject]@{ Num = $num; Name = $m.name; IP = $m.ip; Type = 'agent'; Online = '-'; Seen = '-'; Token = $m.name; User = $m.user; Jump = $m.jump }
+        $rows += [pscustomobject]@{ Num = $num; Name = $m.name; IP = $m.ip; Type = 'agent'; Online = '-'; Seen = '-'; Token = $m.name; User = $m.user; Jump = $m.jump; Ver = '-' }
         $cs = @($allMachines | Where-Object { $_.type -eq 'lan' -and $_.jump -eq $m.jump })
         foreach ($c in $cs) {
             $matchedLan[$c.name] = $true
             $num++
-            $rows += [pscustomobject]@{ Num = $num; Name = ('  ' + $c.name); IP = $c.ip; Type = 'lan'; Online = '-'; Seen = '-'; Token = $c.name; User = $c.user; Jump = $c.jump }
+            $rows += [pscustomobject]@{ Num = $num; Name = ('  ' + $c.name); IP = $c.ip; Type = 'lan'; Online = '-'; Seen = '-'; Token = $c.name; User = $c.user; Jump = $c.jump; Ver = '-' }
         }
     }
     # V2 agent 机器：以 hub 为准（心跳自动注册），registry agent 条目兼容保留
@@ -87,11 +87,11 @@ function Get-MachineRows([switch]$ExcludeSelf) {
             $hseen = if ($hm.lastSeen) { [DateTimeOffset]::FromUnixTimeSeconds([long]$hm.lastSeen).LocalDateTime.ToString('MM-dd HH:mm') } else { '-' }
             $ison = [bool]($hm.lastSeen -and ($nowTs - [long]$hm.lastSeen) -lt 90)
             $hon = if ($ison) { '🌍online' } else { '🚫offline' }
-            $hubRows += [pscustomobject]@{ Name = $hm.name; IP = $hm.ip; Type = 'agent'; Online = $hon; Seen = $hseen; Token = $hm.name; User = 'administrator'; Jump = ('hub:' + $kv.Name); Orank = $(if ($ison) { 0 } else { 1 }) }
+            $hubRows += [pscustomobject]@{ Name = $hm.name; IP = $hm.ip; Type = 'agent'; Online = $hon; Seen = $hseen; Token = $hm.name; User = 'administrator'; Jump = ('hub:' + $kv.Name); Ver = $(if ($hm.ver) { $hm.ver } else { '-' }); Orank = $(if ($ison) { 0 } else { 1 }) }
         }
         foreach ($r in ($hubRows | Sort-Object -Property Orank, Name)) {
             $num++
-            $rows += [pscustomobject]@{ Num = $num; Name = $r.Name; IP = $r.IP; Type = 'agent'; Online = $r.Online; Seen = $r.Seen; Token = $r.Token; User = $r.User; Jump = $r.Jump }
+            $rows += [pscustomobject]@{ Num = $num; Name = $r.Name; IP = $r.IP; Type = 'agent'; Online = $r.Online; Seen = $r.Seen; Token = $r.Token; User = $r.User; Jump = $r.Jump; Ver = $r.Ver }
         }
     }
     foreach ($n in $nodes) {
@@ -101,14 +101,14 @@ function Get-MachineRows([switch]$ExcludeSelf) {
         $disp = if ($n.given_name) { $n.given_name } else { $n.name }
         $name = if ($ip -and $aliasByIp.ContainsKey($ip)) { $aliasByIp[$ip] } else { $disp }
         $num++
-        $rows += [pscustomobject]@{ Num = $num; Name = $name; IP = $ip; Type = 'tailnet'; Online = $(if ($n.online) { '🌍online' } else { '🚫offline' }); Seen = $seen; Token = $disp; User = $null; Jump = $null }
+        $rows += [pscustomobject]@{ Num = $num; Name = $name; IP = $ip; Type = 'tailnet'; Online = $(if ($n.online) { '🌍online' } else { '🚫offline' }); Seen = $seen; Token = $disp; User = $null; Jump = $null; Ver = '-' }
         # 该 B 身后的 C（缩进挂其下，经此 B 两跳可达）
         if ($n.given_name) {
             $cs = @($allMachines | Where-Object { $_.type -eq 'lan' -and $_.jump -eq $n.given_name })
             foreach ($c in $cs) {
                 $matchedLan[$c.name] = $true
                 $num++
-                $rows += [pscustomobject]@{ Num = $num; Name = ('  ' + $c.name); IP = $c.ip; Type = 'lan'; Online = '-'; Seen = '-'; Token = $c.name; User = $c.user; Jump = $c.jump }
+                $rows += [pscustomobject]@{ Num = $num; Name = ('  ' + $c.name); IP = $c.ip; Type = 'lan'; Online = '-'; Seen = '-'; Token = $c.name; User = $c.user; Jump = $c.jump; Ver = '-' }
             }
         }
     }
@@ -157,9 +157,9 @@ function Format-Cell([string]$s, [int]$width) {
 
 function Show-MachineRows($rows) {
     $wName = 34
-    Write-Output ((Format-Cell '#' 4) + (Format-Cell 'NAME' $wName) + (Format-Cell 'IP' 16) + (Format-Cell 'TYPE' 9) + (Format-Cell 'ONLINE' 12) + (Format-Cell 'LAST SEEN' 14))
+    Write-Output ((Format-Cell '#' 4) + (Format-Cell 'NAME' $wName) + (Format-Cell 'IP' 16) + (Format-Cell 'TYPE' 9) + (Format-Cell 'ONLINE' 12) + (Format-Cell 'VER' 5) + (Format-Cell 'LAST SEEN' 14))
     foreach ($row in $rows) {
-        Write-Output ((Format-Cell "$($row.Num)" 4) + (Format-Cell $row.Name $wName) + (Format-Cell $row.IP 16) + (Format-Cell $row.Type 9) + (Format-Cell "$($row.Online)" 12) + (Format-Cell $row.Seen 14))
+        Write-Output ((Format-Cell "$($row.Num)" 4) + (Format-Cell $row.Name $wName) + (Format-Cell $row.IP 16) + (Format-Cell $row.Type 9) + (Format-Cell "$($row.Online)" 12) + (Format-Cell "$($row.Ver)" 5) + (Format-Cell $row.Seen 14))
     }
 }
 
@@ -600,7 +600,7 @@ function Do-AgentList {
     $metas = Get-AgentMetas
     if ($null -eq $metas) { Write-Output '!! hub 不可达'; return }
     $now = [DateTimeOffset]::Now.ToUnixTimeSeconds()
-    Write-Output ((Format-Cell 'NAME' 26) + '  ' + (Format-Cell 'LAST SEEN' 13) + '  ' + (Format-Cell 'STATUS' 11) + 'ID')
+    Write-Output ((Format-Cell 'NAME' 26) + '  ' + (Format-Cell 'LAST SEEN' 13) + '  ' + (Format-Cell 'STATUS' 13) + (Format-Cell 'VER' 5) + 'ID')
     $any = $false
     $rows = @()
     foreach ($kv in $metas.PSObject.Properties) {
@@ -608,10 +608,10 @@ function Do-AgentList {
         $m = $kv.Value
         $ison = [bool]($m.lastSeen -and ($now - [long]$m.lastSeen) -lt 90)
         $ls = if ($m.lastSeen) { ([DateTimeOffset]::FromUnixTimeSeconds([long]$m.lastSeen).LocalDateTime.ToString('MM-dd HH:mm')) } else { '-' }
-        $rows += [pscustomobject]@{ Name = $m.name; Ls = $ls; Online = $(if ($ison) { '🌍online' } else { '🚫offline' }); Id = ('id ' + $kv.Name); Orank = $(if ($ison) { 0 } else { 1 }) }
+        $rows += [pscustomobject]@{ Name = $m.name; Ls = $ls; Online = $(if ($ison) { '🌍online' } else { '🚫offline' }); Ver = $(if ($m.ver) { $m.ver } else { '-' }); Id = ('id ' + $kv.Name); Orank = $(if ($ison) { 0 } else { 1 }) }
     }
     foreach ($r in ($rows | Sort-Object -Property Orank, Name)) {
-        Write-Output ((Format-Cell $r.Name 26) + '  ' + (Format-Cell $r.Ls 13) + '  ' + (Format-Cell $r.Online 11) + $r.Id)
+        Write-Output ((Format-Cell $r.Name 26) + '  ' + (Format-Cell $r.Ls 13) + '  ' + (Format-Cell $r.Online 13) + (Format-Cell $r.Ver 5) + $r.Id)
     }
     if (-not $any) { Write-Output '(无 agent 机器 — tailpet agent add 新增)' }
 }
@@ -1017,7 +1017,7 @@ function Do-GenPrompt {
             $ison = [bool]($gm.lastSeen -and ($nowTs - [long]$gm.lastSeen) -lt 90)
             $gon = if ($ison) { '🌍online' } else { '🚫offline' }
             $agentItems += [pscustomobject]@{
-                Label = (Format-Cell $gm.name 26) + '  (agent, ' + $gon + ')'
+                Label = (Format-Cell $gm.name 26) + '  (agent' + $(if ($gm.ver) { ' v' + $gm.ver }) + ', ' + $gon + ')'
                 Type = 'agent'; IP = $gm.ip; Name = $gm.name; User = 'administrator'; Jump = ('hub:' + $kv.Name); GivenName = $null
                 Orank = $(if ($ison) { 0 } else { 1 })
             }

@@ -318,6 +318,8 @@ class Handler(BaseHTTPRequestHandler):
                 meta['name'] = body.get('name')
             if body.get('pubkey'):
                 meta['pubkey'] = body.get('pubkey')
+            if body.get('ver'):
+                meta['ver'] = body.get('ver')
             write_json(os.path.join(d, 'meta.json'), meta)
             return self._json(200, {'ok': True})
         if path == '/result':
