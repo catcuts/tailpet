@@ -80,13 +80,18 @@ function Get-MachineRows([switch]$ExcludeSelf) {
     $metas = Get-AgentMetas
     if ($metas) {
         $nowTs = [DateTimeOffset]::Now.ToUnixTimeSeconds()
+        $hubRows = @()
         foreach ($kv in $metas.PSObject.Properties) {
             $hm = $kv.Value
             if ($allMachines | Where-Object { $_.type -eq 'agent' -and $_.name -ieq $hm.name }) { continue }
             $hseen = if ($hm.lastSeen) { [DateTimeOffset]::FromUnixTimeSeconds([long]$hm.lastSeen).LocalDateTime.ToString('MM-dd HH:mm') } else { '-' }
-            $hon = if ($hm.lastSeen -and ($nowTs - [long]$hm.lastSeen) -lt 90) { '🌍online' } else { '🚫offline' }
+            $ison = [bool]($hm.lastSeen -and ($nowTs - [long]$hm.lastSeen) -lt 90)
+            $hon = if ($ison) { '🌍online' } else { '🚫offline' }
+            $hubRows += [pscustomobject]@{ Name = $hm.name; IP = $hm.ip; Type = 'agent'; Online = $hon; Seen = $hseen; Token = $hm.name; User = 'administrator'; Jump = ('hub:' + $kv.Name); Orank = $(if ($ison) { 0 } else { 1 }) }
+        }
+        foreach ($r in ($hubRows | Sort-Object -Property Orank, Name)) {
             $num++
-            $rows += [pscustomobject]@{ Num = $num; Name = $hm.name; IP = $hm.ip; Type = 'agent'; Online = $hon; Seen = $hseen; Token = $hm.name; User = 'administrator'; Jump = ('hub:' + $kv.Name) }
+            $rows += [pscustomobject]@{ Num = $num; Name = $r.Name; IP = $r.IP; Type = 'agent'; Online = $r.Online; Seen = $r.Seen; Token = $r.Token; User = $r.User; Jump = $r.Jump }
         }
     }
     foreach ($n in $nodes) {
@@ -597,12 +602,16 @@ function Do-AgentList {
     $now = [DateTimeOffset]::Now.ToUnixTimeSeconds()
     Write-Output ((Format-Cell 'NAME' 26) + '  ' + (Format-Cell 'LAST SEEN' 13) + '  ' + (Format-Cell 'STATUS' 11) + 'ID')
     $any = $false
+    $rows = @()
     foreach ($kv in $metas.PSObject.Properties) {
         $any = $true
         $m = $kv.Value
+        $ison = [bool]($m.lastSeen -and ($now - [long]$m.lastSeen) -lt 90)
         $ls = if ($m.lastSeen) { ([DateTimeOffset]::FromUnixTimeSeconds([long]$m.lastSeen).LocalDateTime.ToString('MM-dd HH:mm')) } else { '-' }
-        $online = if ($m.lastSeen -and ($now - [long]$m.lastSeen) -lt 90) { '🌍online' } else { '🚫offline' }
-        Write-Output ((Format-Cell $m.name 26) + '  ' + (Format-Cell $ls 13) + '  ' + (Format-Cell $online 11) + ('id ' + $kv.Name))
+        $rows += [pscustomobject]@{ Name = $m.name; Ls = $ls; Online = $(if ($ison) { '🌍online' } else { '🚫offline' }); Id = ('id ' + $kv.Name); Orank = $(if ($ison) { 0 } else { 1 }) }
+    }
+    foreach ($r in ($rows | Sort-Object -Property Orank, Name)) {
+        Write-Output ((Format-Cell $r.Name 26) + '  ' + (Format-Cell $r.Ls 13) + '  ' + (Format-Cell $r.Online 11) + $r.Id)
     }
     if (-not $any) { Write-Output '(无 agent 机器 — tailpet agent add 新增)' }
 }
@@ -953,7 +962,7 @@ function Do-MachineRemove([string]$name) {
 }
 
 function Do-MachineList {
-    $machines = Get-Machines
+    $machines = @(Get-Machines | Sort-Object -Property Name)
     if (-not $machines -or $machines.Count -eq 0) { Write-Output '(注册表为空 — tailpet machine add 添加)'; return }
     Write-Output ((Format-Cell 'NAME' 20) + ' ' + (Format-Cell 'IP' 16) + ' ' + (Format-Cell 'USER' 14) + ' ' + (Format-Cell 'TYPE' 6) + 'JUMP')
     for ($i = 0; $i -lt $machines.Count; $i++) {
@@ -982,8 +991,8 @@ function Do-GenPrompt {
         }
     }
 
-    # 注册表机器
-    $machines = @(Get-Machines)
+    # 注册表机器（按名排序）
+    $machines = @(Get-Machines | Sort-Object -Property Name)
     foreach ($m in $machines) {
         $typeLabel = if ($m.type -eq 'lan') { "C类,经$($m.jump)" } elseif ($m.type -eq 'tailnet') { '节点别名' } else { $m.type }
         $given = $null
@@ -1002,14 +1011,18 @@ function Do-GenPrompt {
     $metas = Get-AgentMetas
     if ($metas) {
         $nowTs = [DateTimeOffset]::Now.ToUnixTimeSeconds()
+        $agentItems = @()
         foreach ($kv in $metas.PSObject.Properties) {
             $gm = $kv.Value
-            $gon = if ($gm.lastSeen -and ($nowTs - [long]$gm.lastSeen) -lt 90) { '🌍online' } else { '🚫offline' }
-            $items += [pscustomobject]@{
+            $ison = [bool]($gm.lastSeen -and ($nowTs - [long]$gm.lastSeen) -lt 90)
+            $gon = if ($ison) { '🌍online' } else { '🚫offline' }
+            $agentItems += [pscustomobject]@{
                 Label = (Format-Cell $gm.name 26) + '  (agent, ' + $gon + ')'
                 Type = 'agent'; IP = $gm.ip; Name = $gm.name; User = 'administrator'; Jump = ('hub:' + $kv.Name); GivenName = $null
+                Orank = $(if ($ison) { 0 } else { 1 })
             }
         }
+        foreach ($ai in ($agentItems | Sort-Object -Property Orank, Name)) { $items += $ai }
     }
 
     # 新建选项
