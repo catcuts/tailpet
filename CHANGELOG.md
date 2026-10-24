@@ -20,6 +20,11 @@
 - Add-Agent 重跑自动接管：结束旧常驻实例再启动，杜绝"磁盘新码、内存旧码"
 - exec 链路：120 秒硬超时（杀进程树）、精确退出码（独立标记文件 + cmd /V:ON 延迟展开）、BatchMode 防挂起、命令引号自动剥壳
 - gen-prompt：引导先探测远程 PowerShell 版本（Get-Host）+ 转义/编码避坑（EncodedCommand / GBK / 不要 chcp 65001）
+- 全视图 CJK 宽度感知对齐（中文按 2 列），agent list / nodes / gen-prompt / machine list / tunnel-list / help 统一
+- 状态 emoji 化：🌍online / 🚫offline，一眼区分
+- 全视图统一排序：在线优先 → 组内按名
+- agent list / nodes / gen-prompt 增 VER 列：agent 版本号随心跳上报，`-` 即待升级
+- `tailpet tunnel-list`：查看活动隧道，失联记录自动清理
 
 ### 关键修复（v2 开发期实战）
 - hub /poll 对自身 cmd.b64 做 JSON 解析导致命令永不投递 + mtime 判定使两轮询间到达的命令卡死

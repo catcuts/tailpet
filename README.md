@@ -75,7 +75,7 @@ agent 首次心跳即在 hub 自动注册，A 侧立即可见可用。
 ## 日常操作
 
 ```powershell
-tailpet agent list                        # agent 表（在线状态/最后心跳）
+tailpet agent list                        # agent 表（在线优先→按名排序；VER 列 = agent 版本，- 即待升级）
 tailpet agent exec 公司B "ipconfig /all"   # 远程执行（经 hub 下发，非交互）
 tailpet agent exec 公司B "ssh-c root@192.168.38.202 uname -a"   # 操作 B 内网的 C 机（C 需装 sshd 并持有 B 的公钥）
 tailpet file get 公司B C:\ProgramData\tailpet\spool\out.log   # 取回该机文件（大输出先落盘再取）
@@ -85,7 +85,8 @@ tailpet ssh                               # 交互式选择机器
 tailpet nodes                             # 机器总表
 tailpet tunnel 公司B 80                    # 本机浏览器打开 B 的 80 端口 web
 tailpet tunnel 公司B 8080 192.168.38.201   # 打开 B 内网另一台机器的 8080
-tailpet tunnel-stop <本地端口>              # 停止隧道（不带参数=全部）
+tailpet tunnel-stop [本地端口]              # 停止隧道（不带参数=全部）
+tailpet tunnel-list                        # 查看活动隧道（失联记录自动清理）
 tailpet gen-prompt                        # 生成机器连接说明（复制到剪贴板，喂给 AI 用）
 tailpet agent rm <名>                      # 吊销 agent
 ```
