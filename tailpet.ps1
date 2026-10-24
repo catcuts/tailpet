@@ -303,7 +303,7 @@ function Do-Tunnel([string]$token, [string]$rport = '80', [string]$lport = '', [
     $existing = Get-Tunnels | Where-Object { $_.port -eq $lport }
     if ($existing) { Write-Output "!! 本地端口 $lport 已有隧道（tailpet tunnel-stop $lport 先停止）"; return }
     if ($c.Via -eq 'agent') {
-        $adminToken = (Get-Content (Join-Path $env:LOCALAPPDATA 'tailpet\hub-admin.txt') -Raw).Trim()
+        $adminToken = (Get-Content (Join-Path $pkgDir 'hub-admin.txt') -Raw).Trim()
         $bridge = Join-Path $pkgDir 'bridge.py'
         if (-not (Test-Path $bridge)) { Write-Output '!! 缺 bridge.py（从开发仓同步安装副本）'; return }
         $errLog = Join-Path $env:TEMP ('tailpet-bridge-' + $lport + '.log')
@@ -414,7 +414,7 @@ function Do-AgentAdd([string]$name) {
 
 function Get-AgentMetas {
     # 从 hub 拉全部 agent meta（id -> {token, name, lastSeen, ip}）；失败返回 $null
-    $adminFile = Join-Path $env:LOCALAPPDATA 'tailpet\hub-admin.txt'
+    $adminFile = Join-Path $pkgDir 'hub-admin.txt'
     if (-not (Test-Path $adminFile)) { return $null }
     $adminToken = (Get-Content $adminFile -Raw).Trim()
     try {
@@ -442,7 +442,7 @@ function Do-AgentExec([string]$name, [string]$cmd, [int]$TimeoutSec = 0) {
     if (-not $hit) { Write-Output "!! agent 不存在: $name（tailpet agent list 查看）"; return }
     $id = $hit.id
     # 清旧结果 + 下发 cmd（hub admin API）
-    $adminFile = Join-Path $env:LOCALAPPDATA 'tailpet\hub-admin.txt'
+    $adminFile = Join-Path $pkgDir 'hub-admin.txt'
     $adminToken = (Get-Content $adminFile -Raw).Trim()
     $send = $cmd
     if ($TimeoutSec -gt 0) { $send = '__timeout ' + $TimeoutSec + "`n" + $cmd }
@@ -506,7 +506,7 @@ function Do-AgentRm([string]$name) {
     $hit = $null
     foreach ($a in $agents) { if ($a.name -ieq $name) { $hit = $a; break } }
     if (-not $hit) { Write-Output "!! agent 不存在: $name（tailpet agent list 查看）"; return }
-    $adminFile = Join-Path $env:LOCALAPPDATA 'tailpet\hub-admin.txt'
+    $adminFile = Join-Path $pkgDir 'hub-admin.txt'
     $adminToken = (Get-Content $adminFile -Raw).Trim()
     Invoke-WebRequest -UseBasicParsing -TimeoutSec 10 -Uri ('http://' + $P.server.host + ':8443/purge?admin=' + $adminToken + '&id=' + $hit.id) -Method POST -Body '{}' | Out-Null
     Write-Output "已吊销: $name（hub 状态已删除，该机 agent 将无法继续通信）"
@@ -524,7 +524,7 @@ function Do-FileList([string]$name) {
     if (-not $name) { Write-Output 'usage: tailpet file list <机器名>'; return }
     $id = Get-AgentIdByName $name
     if (-not $id) { Write-Output "!! agent 不存在: $name"; return }
-    $adminToken = (Get-Content (Join-Path $env:LOCALAPPDATA 'tailpet\hub-admin.txt') -Raw).Trim()
+    $adminToken = (Get-Content (Join-Path $pkgDir 'hub-admin.txt') -Raw).Trim()
     $resp = Invoke-WebRequest -UseBasicParsing -TimeoutSec 30 -Uri ('http://' + $P.server.host + ':8443/files?admin=' + $adminToken + '&id=' + $id)
     $files = $resp.Content | ConvertFrom-Json
     if (-not $files -or @($files).Count -eq 0) { Write-Output '(该机 hub 无暂存文件)'; return }
@@ -539,7 +539,7 @@ function Do-FileGet([string]$name, [string]$remotePath, [string]$localPath) {
     $id = Get-AgentIdByName $name
     if (-not $id) { Write-Output "!! agent 不存在: $name"; return }
     $rname = 'f' + (Get-Date -Format 'yyyyMMddHHmmss')
-    $adminToken = (Get-Content (Join-Path $env:LOCALAPPDATA 'tailpet\hub-admin.txt') -Raw).Trim()
+    $adminToken = (Get-Content (Join-Path $pkgDir 'hub-admin.txt') -Raw).Trim()
     $tokById = ''
     $metas2 = Get-AgentMetas
     if ($metas2) { foreach ($kv in $metas2.PSObject.Properties) { if ($kv.Name -eq $id) { $tokById = $kv.Value.token } } }
@@ -571,7 +571,7 @@ function Do-FilePut([string]$name, [string]$localPath, [string]$remotePath) {
     $id = Get-AgentIdByName $name
     if (-not $id) { Write-Output "!! agent 不存在: $name"; return }
     $rname = 'f' + (Get-Date -Format 'yyyyMMddHHmmss')
-    $adminToken = (Get-Content (Join-Path $env:LOCALAPPDATA 'tailpet\hub-admin.txt') -Raw).Trim()
+    $adminToken = (Get-Content (Join-Path $pkgDir 'hub-admin.txt') -Raw).Trim()
     $base = 'http://' + $P.server.host + ':8443'
     $bytes = [IO.File]::ReadAllBytes($localPath)
     $chunk = 262144
