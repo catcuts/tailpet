@@ -1202,7 +1202,7 @@ function Build-PromptText($item, $jumpInfo) {
         $lines += '- **执行命令**: `tailpet agent exec ' + $item.Name + ' <命令>` '
         $lines += '  —— 在该机 cmd 里执行，非交互，120 秒超时。'
         $lines += ''
-        $lines += '- **该机内网 C 机（密码模式，推荐）**: `tailpet agent exec ' + $item.Name + ' "ssh-p 密码 用户@C_IP 命令"` —— 走 win-sshpass，C 机零预装'
+        $lines += '- **该机内网 C 机（密码模式，推荐）**: `tailpet agent exec ' + $item.Name + ' "ssh-p 密码 用户@C_IP 命令"` —— 走 plink 密码认证（keyscan 自动信任主机密钥），C 机零预装'
         $lines += '  公钥模式（C 已装该机公钥时）: `tailpet agent exec ' + $item.Name + ' "ssh-c 用户@C_IP 命令"`（公钥在 hub /metas 的 pubkey 字段）。'
         $lines += ''
         $lines += '- **Web 服务访问**: `tailpet tunnel ' + $item.Name + ' <服务端口>` 其中：'
