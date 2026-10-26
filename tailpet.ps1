@@ -254,7 +254,7 @@ function Get-FreePort {
 
 function Do-Tunnel([string]$token, [string]$rport = '80', [string]$lport = '', [string]$targetHost = '', [switch]$NoBrowse) {
     if (-not $token) {
-        Write-Output 'usage: tailpet tunnel <机器名> [服务端口=80] [本地端口=自动分配] [目标IP=该机本机]   （tailpet tunnel-list 查看活动隧道）'
+        Write-Output 'usage: tailpet tunnel <机器名> [服务端口=80] [本地端口=自动分配] [目标IP=该机本机]   （tailpet tunnel list 查看活动隧道）'
         Write-Output '  把该机器可访问的 web 端口转发到 A 本机并打开浏览器；agent 机经 hub 中继（B 出站拨中继，零入站）'
         return
     }
@@ -1210,7 +1210,7 @@ function Build-PromptText($item, $jumpInfo) {
         $lines += '  - 本地端口缺省自动分配系统空闲端口（也可显式指定），分配结果见命令输出或 `tailpet tunnel-list`；'
         $lines += '  - 建好后自动打开浏览器，同目标重复执行自动复用；'
         $lines += '  - 默认转该机 127.0.0.1，服务只绑该机内网 IP 时：`tailpet tunnel ' + $item.Name + ' <服务端口> <本地端口> <目标IP>`；'
-        $lines += '  - 查看用 `tailpet tunnel-list`；停止用 `tailpet tunnel-stop [本地端口]`（无参数=全部）。'
+        $lines += '  - 查看用 `tailpet tunnel list`；停止用 `tailpet tunnel-stop [本地端口]`（无参数=全部）。'
         $lines += ''
         $lines += '- **命令规则**: 单行；引号最多一层；交互确认一律加静默参数；`!` 会被吞掉；不要 chcp 65001。'
         $lines += '  长度上限约 8K（超长内容用 file put 推脚本再执行）；`|` 管道符易被多层 shell 拆坏（grep 多模式用多个 -e）；'
@@ -1361,6 +1361,7 @@ function Show-Help {
             @('tailpet ssh <名> [命令...]', '远程执行（agent 机自动经 hub 下发；其余走 ssh）'),
             @('tailpet nodes', '机器总表（agent 含在线状态）'),
             @('tailpet tunnel <名> [远端端口] [本地端口]', '端口隧道：远端网页在 A 本机浏览器打开'),
+            @('tailpet tunnel list', '查看活动隧道（失联记录自动清理）'),
             @('tailpet tunnel-stop [本地端口]', '停止隧道（不带参数=全部）'),
             @('tailpet sync-alias', '同步 C 类机器别名')
         )),
@@ -1394,9 +1395,12 @@ switch ($Cmd.ToLower()) {
     'nodes'    { Do-Nodes }
     'sync-alias' { Do-SyncAlias }
     'tunnel'     {
-        $nb = $Rest -contains '-NoBrowse'
-        $ta = @($Rest | Where-Object { "$_" -ne '-NoBrowse' })
-        Do-Tunnel "$($ta[0])" "$($ta[1])" "$($ta[2])" "$($ta[3])" -NoBrowse:$nb
+        if ("$($Rest[0])" -eq 'list') { Do-TunnelList }
+        else {
+            $nb = $Rest -contains '-NoBrowse'
+            $ta = @($Rest | Where-Object { "$_" -ne '-NoBrowse' })
+            Do-Tunnel "$($ta[0])" "$($ta[1])" "$($ta[2])" "$($ta[3])" -NoBrowse:$nb
+        }
     }
     'tunnel-stop' { if ($Rest.Count -gt 0) { Do-TunnelStop "$($Rest[0])" } else { Do-TunnelStop } }
     'tunnel-list' { Do-TunnelList }
