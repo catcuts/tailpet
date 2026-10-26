@@ -43,7 +43,7 @@
 |---|---|---|
 | **一台 S（公网服务器）** | Windows，能跑 Python 3.8+，1 核 1G 起步 | 任意云厂商；防火墙放行 TCP 8443、80 |
 | **一台 A（管理机）** | 你日常用的 Windows + Python 3 | 无需公网 IP |
-| **B 类设备（任意多台）** | Windows，能出公网（仅出站 8443/80） | 无需公网 IP、无需入站放行、无需装任何东西 |
+| **B 类设备（任意多台）** | Windows，能出公网（仅出站 8443/80） | 无需公网 IP、无需入站放行、无需装任何东西；Git Bash 用户有专用 shim（bin/tailpet） |
 
 **S 上部署 hub**（一次性，现成部署细节见 `docs/环境交接-v2.md`）：
 
@@ -77,7 +77,8 @@ agent 首次心跳即在 hub 自动注册，A 侧立即可见可用。
 ```powershell
 tailpet agent list                        # agent 表（在线优先→按名排序；VER 列 = agent 版本，- 即待升级）
 tailpet agent exec 公司B "ipconfig /all"   # 远程执行（经 hub 下发，非交互）
-tailpet agent exec 公司B "ssh-c root@192.168.38.202 uname -a"   # 操作 B 内网的 C 机（C 需装 sshd 并持有 B 的公钥）
+tailpet agent exec 公司B "ssh-p 密码 root@192.168.38.202 uname -a"   # 操作 B 内网的 C 机（密码模式，C 机零预装）
+tailpet agent exec 公司B "ssh-c root@192.168.38.202 uname -a"        # 公钥模式（C 已装 B 的公钥时）
 tailpet file get 公司B C:\ProgramData\tailpet\spool\out.log   # 取回该机文件（大输出先落盘再取）
 tailpet file put 公司B 本地文件 [该机目标路径]                 # 推文件到该机（hub 分块中转，异步）
 tailpet ssh 公司B "hostname"               # 同上（agent 机自动走 hub）

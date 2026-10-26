@@ -26,6 +26,14 @@
 - agent list / nodes / gen-prompt 增 VER 列：agent 版本号随心跳上报，`-` 即待升级
 - `tailpet tunnel-list`：查看活动隧道，失联记录自动清理
 
+### 实战反馈修复（沐川站点一线使用报告）
+- `-c`/`-C` 参数被吞（grep -c/ssh -c 全中招）：tailpet.ps1 移除 param 块改 $args 裸收——PowerShell 参数缩写绑定会把 -c 匹配成 -Cmd
+- `file put` 挂死修复（双根因）：filedone 先删分块致 worker 404（改顺序）；hub 404 响应无 Content-Length 致 keep-alive 客户端无限等待（补 CL+close）
+- `ssh-p` 密码模式 SSH：现场 C 机没装公钥是常态——plink（全 Windows 兼容，含 2008 R2）+ ssh-keyscan 现取公钥 TOFU + `-pw` 密码，零预装零提示；win-sshpass 因 Go 构建在 2008 R2 启动即挂死而弃用
+- gen-prompt 命令规则补录：长度上限 8K、管道符拆坏、&& 不可串联 ssh、密码特殊字符用 EncodedCommand
+- Git Bash shim（bin/tailpet）：绕过 cmd 层，&&/引号语义正常
+- agent 版本号上报（ver 字段）+ 三视图 VER 列：`-` 即待升级
+
 ### 关键修复（v2 开发期实战）
 - hub /poll 对自身 cmd.b64 做 JSON 解析导致命令永不投递 + mtime 判定使两轮询间到达的命令卡死
 - agent 模板 $calUrl 未定义 → c-aliases 一出现即崩溃死循环（agent 失联 17h 的根因）
