@@ -273,105 +273,154 @@ def make_state():
 
 PAGE = r'''<!DOCTYPE html>
 <html lang="zh"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>tailpet 控制台</title>
 <style>
-body{font-family:"Microsoft YaHei",sans-serif;margin:0;background:#f4f6f8;color:#222}
-header{background:#1f3a5f;color:#fff;padding:10px 18px;display:flex;gap:16px;align-items:center;flex-wrap:wrap}
-header b{font-size:17px}
-.card{background:#fff;margin:14px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.12);padding:12px 16px}
-h3{margin:2px 0 10px;font-size:14px;color:#1f3a5f;border-bottom:1px solid #e3e8ee;padding-bottom:6px}
+:root{--pri:#4f46e5;--pri-h:#4338ca;--pri-soft:#eef2ff;--ok:#059669;--ok-bg:#ecfdf5;--bad:#e11d48;
+--bad-bg:#fff1f2;--txt:#0f172a;--sub:#64748b;--line:#e2e8f0;--bg:#f8fafc;--card:#fff}
+*{box-sizing:border-box}
+body{font-family:-apple-system,"Segoe UI","Microsoft YaHei",system-ui,sans-serif;margin:0;background:var(--bg);color:var(--txt);font-size:14px}
+header{position:sticky;top:0;z-index:5;background:rgba(255,255,255,.86);backdrop-filter:blur(8px);
+border-bottom:1px solid var(--line);padding:12px 22px;display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+.logo{display:flex;align-items:center;gap:9px;font-weight:700;font-size:16px;letter-spacing:.2px}
+.logo .dot{width:10px;height:10px;border-radius:50%;background:linear-gradient(135deg,#6366f1,#8b5cf6);box-shadow:0 0 0 4px var(--pri-soft)}
+.hstat{font-size:13px;color:var(--sub)}
+.hstat b{color:var(--txt)}
+.spacer{flex:1}
+.card{background:var(--card);margin:16px 22px;border:1px solid var(--line);border-radius:14px;
+box-shadow:0 1px 2px rgba(15,23,42,.04);padding:16px 18px}
+h3{margin:0 0 12px;font-size:13.5px;color:var(--txt);display:flex;align-items:center;gap:8px;font-weight:650}
+h3 .m{font-size:15px}
+h3 .cnt{color:var(--sub);font-weight:400;font-size:12px}
 table{border-collapse:collapse;width:100%;font-size:13px}
-th,td{padding:6px 8px;border-bottom:1px solid #eef1f4;text-align:left}
-th{color:#666;font-weight:600;background:#fafbfc}
-button{border:1px solid #c5d0dc;background:#fff;border-radius:5px;padding:4px 10px;cursor:pointer;font-size:12px}
-button:hover{background:#eef3f9}
-button.pri{background:#1f3a5f;color:#fff;border-color:#1f3a5f}
-button.warn{color:#b00;border-color:#d99}
-input,select{border:1px solid #c5d0dc;border-radius:5px;padding:4px 8px;font-size:12px}
-pre{background:#101826;color:#cfe3ff;padding:10px;border-radius:6px;font-size:12px;max-height:260px;overflow:auto;white-space:pre-wrap}
-.ok{color:#0a7d32}.off{color:#999}
-.tag{display:inline-block;padding:1px 7px;border-radius:9px;font-size:11px}
-.on{background:#e2f5e9;color:#0a7d32}.offline{background:#f1f1f1;color:#888}
-.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0}
-.hint{font-size:11px;color:#8a97a5}
-#toast{position:fixed;bottom:18px;right:18px;background:#123;color:#fff;padding:9px 16px;border-radius:7px;font-size:13px;display:none;z-index:9}
-details{margin-top:8px}
+th,td{padding:9px 10px;text-align:left}
+th{color:var(--sub);font-weight:550;font-size:12px;text-transform:none;border-bottom:1px solid var(--line)}
+td{border-bottom:1px solid #f1f5f9}
+tbody tr{transition:background .12s}
+tbody tr:hover{background:#f8fafc}
+tbody tr:last-child td{border-bottom:none}
+button{border:1px solid var(--line);background:#fff;border-radius:9px;padding:5px 12px;cursor:pointer;
+font-size:12.5px;color:var(--txt);transition:all .13s;font-family:inherit}
+button:hover{border-color:#cbd5e1;background:#f8fafc;transform:translateY(-1px)}
+button:active{transform:none}
+button.pri{background:var(--pri);color:#fff;border-color:var(--pri);box-shadow:0 1px 2px rgba(79,70,229,.35)}
+button.pri:hover{background:var(--pri-h);border-color:var(--pri-h)}
+button.ghost{border-color:transparent;background:var(--pri-soft);color:var(--pri)}
+button.ghost:hover{background:#e0e7ff}
+button.warn{color:var(--bad);border-color:#fecdd3}
+button.warn:hover{background:var(--bad-bg)}
+input,select{border:1px solid var(--line);border-radius:9px;padding:6px 10px;font-size:12.5px;background:#fff;
+color:var(--txt);outline:none;transition:border .13s, box-shadow .13s;font-family:inherit}
+input:focus,select:focus{border-color:var(--pri);box-shadow:0 0 0 3px var(--pri-soft)}
+pre{background:#0f172a;color:#e2e8f0;padding:13px 15px;border-radius:11px;font-size:12.5px;line-height:1.55;
+max-height:280px;overflow:auto;white-space:pre-wrap;font-family:"Cascadia Code",Consolas,monospace;margin:10px 0 0}
+.badge{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:500}
+.badge.on{background:var(--ok-bg);color:var(--ok)}
+.badge.off{background:#f1f5f9;color:var(--sub)}
+.badge .d{width:7px;height:7px;border-radius:50%}
+.badge.on .d{background:var(--ok);box-shadow:0 0 0 3px #d1fae5}
+.badge.off .d{background:#94a3b8}
+.ver{display:inline-block;min-width:30px;text-align:center;background:#f1f5f9;border-radius:6px;padding:1px 7px;
+font-size:11.5px;color:var(--sub);font-weight:600}
+.ver.v2{background:var(--pri-soft);color:var(--pri)}
+.row{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin:8px 0}
+.hint{font-size:11.5px;color:#94a3b8}
+.kv{font-size:12.5px;color:var(--sub)}
+.sep{height:1px;background:var(--line);margin:12px 0}
+#toast{position:fixed;bottom:22px;right:22px;background:#0f172a;color:#fff;padding:11px 18px;border-radius:12px;
+font-size:13px;display:none;z-index:9;box-shadow:0 8px 24px rgba(15,23,42,.28);max-width:60vw}
+.titem{display:flex;align-items:center;gap:10px;padding:9px 4px;border-bottom:1px solid #f1f5f9}
+.titem:last-child{border-bottom:none}
+.titem b{font-weight:650}
+footer{margin:8px 22px 22px;color:#94a3b8;font-size:11.5px;text-align:center}
 </style></head><body>
-<header><b>tailpet 控制台</b>
- <span id="hubstat">…</span><span id="cnt"></span>
- <span class="row" style="gap:4px">自动刷新 <input id="rf" style="width:46px"> s
-   <span class="hint" id="rfmsg">（改后下一轮生效）</span></span>
- <button onclick="refresh()">立即刷新</button>
+<header>
+ <div class="logo"><span class="dot"></span>tailpet 控制台</div>
+ <span class="hstat" id="hubstat">连接中…</span>
+ <span class="hstat" id="cnt"></span>
+ <span class="spacer"></span>
+ <span class="hstat">自动刷新</span>
+ <input id="rf" style="width:52px"> <span class="hstat">s</span>
+ <span class="hint" id="rfmsg">改后下一轮生效</span>
+ <button class="ghost" onclick="refresh()">立即刷新</button>
 </header>
 
-<div class="card"><h3>机器列表</h3>
-<table id="agents"><thead><tr><th>名称</th><th>状态</th><th>版本</th><th>最后心跳</th><th>IP</th><th>操作</th></tr></thead><tbody></tbody></table>
-</div>
+<div class="card"><h3><span class="m">🖥️</span>机器列表 <span class="cnt" id="agCnt"></span></h3>
+<div style="overflow-x:auto">
+<table id="agents"><thead><tr><th>名称</th><th>状态</th><th>版本</th><th>最后心跳</th><th>出口 IP</th><th>操作</th></tr></thead><tbody></tbody></table>
+</div></div>
 
-<div class="card" id="execCard" style="display:none"><h3>命令 · <span id="execName"></span></h3>
+<div class="card" id="execCard" style="display:none"><h3><span class="m">⌨️</span>命令 · <span id="execName" style="color:var(--pri)"></span></h3>
 <div class="row">
- <button onclick="qcmd('hostname')">hostname</button>
- <button onclick="qcmd('ipconfig /all')">ipconfig /all</button>
- <button onclick="qcmd('powershell -NoProfile -Command Get-Host')">Get-Host 版本探测</button>
- 自定义 <input id="cmd" style="flex:1;min-width:220px"> 超时 <input id="tmo" value="120" style="width:52px"> s
+ <button class="ghost" onclick="qcmd('hostname')">hostname</button>
+ <button class="ghost" onclick="qcmd('ipconfig /all')">ipconfig /all</button>
+ <button class="ghost" onclick="qcmd('powershell -NoProfile -Command Get-Host')">版本探测</button>
+ <span style="flex:1"></span>
+ <input id="cmd" placeholder="自定义命令…" style="flex:1;min-width:230px">
+ 超时 <input id="tmo" value="120" style="width:52px"> s
  <button class="pri" onclick="runExec()">运行</button></div>
-<pre id="out">（输出区）</pre>
-</div>
+<pre id="out">（输出区）</pre></div>
 
-<div class="card"><h3>隧道管理</h3>
+<div class="card"><h3><span class="m">🔗</span>隧道管理 <span class="cnt" id="tCnt"></span></h3>
 <div id="tunnels"></div>
-<div class="row">新建：机器 <select id="tAgent"></select> 远端端口 <input id="tPort" value="80" style="width:56px">
- 本地端口 <input id="tLport" placeholder="自动" style="width:56px"> 目标IP <input id="tTarget" placeholder="该机本机" style="width:110px">
- <button class="pri" onclick="newTunnel()">新建隧道</button></div>
-</div>
+<div class="sep"></div>
+<div class="row" style="color:var(--sub);font-size:12.5px">新建隧道：
+ 机器 <select id="tAgent"></select> 远端端口 <input id="tPort" value="80" style="width:58px">
+ 本地端口 <input id="tLport" placeholder="自动" style="width:58px"> 目标IP <input id="tTarget" placeholder="该机本机" style="width:110px">
+ <button class="pri" onclick="newTunnel()">新建</button></div></div>
 
-<div class="card" id="fileCard" style="display:none"><h3>文件传输 · <span id="fileName"></span></h3>
-<div class="row">取回：远端路径 <input id="fPath" style="flex:1;min-width:260px" placeholder="C:\ProgramData\tailpet\spool\out.log">
+<div class="card" id="fileCard" style="display:none"><h3><span class="m">📁</span>文件传输 · <span id="fileName" style="color:var(--pri)"></span></h3>
+<div class="row">⬇️ 取回　远端路径 <input id="fPath" style="flex:1;min-width:250px" placeholder="C:\ProgramData\tailpet\spool\out.log">
  <button class="pri" onclick="doGet()">取回</button></div>
-<div class="row">下载目录 <input id="dlDir" style="flex:1;min-width:220px"> <button onclick="saveCfg2()">保存目录</button></div>
-<div class="row">推送：<input type="file" id="fUp"> 目标 <input id="fRemote" placeholder="spool\同名" style="width:180px">
+<div class="row">　目录　<input id="dlDir" style="flex:1;min-width:220px"> <button class="ghost" onclick="saveCfg2()">保存</button></div>
+<div class="sep"></div>
+<div class="row">⬆️ 推送　<input type="file" id="fUp"> 目标 <input id="fRemote" placeholder="spool\同名" style="width:190px">
  <button class="pri" onclick="doPut()">推送</button></div>
-<pre id="fOut">（传输记录）</pre>
-</div>
+<pre id="fOut">（传输记录）</pre></div>
 
-<div class="card"><h3>安装包生成</h3>
-<div class="row">新站点名 <input id="newAgent" placeholder="如 新丰社区B">
+<div class="card"><h3><span class="m">📦</span>安装包生成</h3>
+<div class="row">新站点名 <input id="newAgent" placeholder="如 新丰社区B" style="min-width:180px">
  <button class="pri" onclick="genZip()">生成并下载</button>
- <span class="hint">同名 = 幂等升级包（复用 id/token，不断线）</span></div>
-</div>
+ <span class="hint">同名站点 = 同 id 升级包（复用 id/token，不断线）</span></div></div>
 
 <div id="toast"></div>
+<footer>tailpet 控制台 · 仅本机访问 · 危险操作需确认</footer>
 <script>
 let AG=[],CFG={refresh:30};
 function toast(m,ms){const t=document.getElementById('toast');t.textContent=m;t.style.display='block';clearTimeout(t._h);t._h=setTimeout(()=>t.style.display='none',ms||2600)}
 async function api(p,body){const r=await fetch(p,body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:undefined);return r.json()}
 async function refresh(){
  try{const s=await api('/api/state');AG=s.agents;CFG=s.config;
-  document.getElementById('hubstat').innerHTML=s.hub_ok?'<span class="ok">hub ● 在线</span>':'<span style="color:#f66">hub ✖ 不可达</span>';
-  document.getElementById('cnt').textContent=`站点 ${s.agents.length} / 在线 ${s.agents.filter(a=>a.online).length}`;
+  document.getElementById('hubstat').innerHTML=s.hub_ok?'<b style="color:var(--ok)">● hub 在线</b>':'<b style="color:var(--bad)">● hub 不可达</b>';
+  document.getElementById('cnt').textContent=`站点 ${s.agents.length} · 在线 ${s.agents.filter(a=>a.online).length}`;
   if(document.activeElement.id!=='rf')document.getElementById('rf').value=s.config.refresh;
   if(document.activeElement.id!=='dlDir')document.getElementById('dlDir').value=s.config.download_dir;
+  document.getElementById('agCnt').textContent=`${s.agents.length} 台`;
+  document.getElementById('tCnt').textContent=`${s.tunnels.length} 条`;
   const tb=document.querySelector('#agents tbody');tb.innerHTML='';
   for(const a of s.agents){const tr=document.createElement('tr');
-   tr.innerHTML=`<td>${a.name}</td><td><span class="tag ${a.online?'on':'offline'}">${a.online?'🌍在线':'🚫离线'}</span></td><td>${a.ver}</td><td>${a.seen}</td><td>${a.ip}</td>
-   <td><button onclick="openExec('${esc(a.name)}')">命令</button> <button onclick="openFile('${esc(a.name)}')">文件</button> <button onclick="quickTunnel('${esc(a.name)}')">隧道80</button></td>`;tb.appendChild(tr)}
+   tr.innerHTML=`<td style="font-weight:550">${a.name}</td><td><span class="badge ${a.online?'on':'off'}"><span class="d"></span>${a.online?'在线':'离线'}</span></td><td><span class="ver ${a.ver!=='-'?'v2':''}">${a.ver}</span></td><td class="kv">${a.seen}</td><td class="kv">${a.ip}</td>
+   <td><button class="ghost" onclick="openExec('${esc(a.name)}')">命令</button> <button onclick="openFile('${esc(a.name)}')">文件</button> <button onclick="quickTunnel('${esc(a.name)}')">隧道:80</button></td>`;tb.appendChild(tr)}
   const sel=document.getElementById('tAgent');const keep=sel.value;sel.innerHTML='';
   for(const a of s.agents){const o=document.createElement('option');o.value=a.name;o.textContent=a.name;sel.appendChild(o)}
   if(keep)sel.value=keep;
   const tv=document.getElementById('tunnels');tv.innerHTML=s.tunnels.length?'':'<span class="hint">（无活动隧道）</span>';
-  for(const t of s.tunnels){const d=document.createElement('div');d.className='row';
-   d.innerHTML=`<b>${t.port}</b> → ${t.target} <span class="${t.alive?'ok':'off'}">${t.alive?'运行中':'已失联'}</span> <span class="hint">${t.started}</span> <button class="warn" onclick="stopTunnel(${t.port})">停止</button>`;tv.appendChild(d)}
- }catch(e){document.getElementById('hubstat').innerHTML='<span style="color:#f66">控制台服务异常</span>'}
+  for(const t of s.tunnels){const d=document.createElement('div');d.className='titem';
+   d.innerHTML=`<b>${t.port}</b><span class="kv">→</span><span>${t.target}</span>
+   <span class="badge ${t.alive?'on':'off'}"><span class="d"></span>${t.alive?'运行中':'已失联'}</span>
+   <span class="hint">${t.started}</span><span style="flex:1"></span>
+   <button class="warn" onclick="stopTunnel(${t.port})">停止</button>`;tv.appendChild(d)}
+ }catch(e){document.getElementById('hubstat').innerHTML='<b style="color:var(--bad)">● 控制台服务异常</b>'}
 }
 function esc(s){return s.replace(/'/g,"\\'")}
-function openExec(n){document.getElementById('execCard').style.display='block';document.getElementById('execName').textContent=n;document.getElementById('out').textContent='（输出区）';window.scrollTo(0,document.getElementById('execCard').offsetTop-8)}
-function openFile(n){document.getElementById('fileCard').style.display='block';document.getElementById('fileName').textContent=n;window.scrollTo(0,document.getElementById('fileCard').offsetTop-8)}
+function openExec(n){document.getElementById('execCard').style.display='block';document.getElementById('execName').textContent=n;document.getElementById('out').textContent='（输出区）';document.getElementById('execCard').scrollIntoView({behavior:'smooth',block:'start'})}
+function openFile(n){document.getElementById('fileCard').style.display='block';document.getElementById('fileName').textContent=n;document.getElementById('fileCard').scrollIntoView({behavior:'smooth',block:'start'})}
 function qcmd(c){document.getElementById('cmd').value=c;runExec()}
 async function runExec(){const n=document.getElementById('execName').textContent,c=document.getElementById('cmd').value.trim(),t=+document.getElementById('tmo').value||120;
  if(!c)return; if(!confirm(`确认在【${n}】执行命令？\n\n${c}\n\n超时 ${t}s`))return;
- document.getElementById('out').textContent='执行中…';
+ document.getElementById('out').textContent='⏳ 执行中…';
  const r=await api('/api/exec',{name:n,cmd:c,timeout:t});
- document.getElementById('out').textContent=(r.stdout||'')+(r.stderr?'\n[stderr] '+r.stderr:'')+`\n[exit ${r.exit}]`}
+ document.getElementById('out').textContent=(r.stdout||'')+(r.stderr?'\n[stderr] '+r.stderr:'')+`\n—— exit ${r.exit} ——`}
 async function newTunnel(){const n=tAgent.value,p=+tPort.value||80,l=tLport.value.trim(),t=tTarget.value.trim();
  if(!confirm(`确认新建隧道？\n\n${n} ${t||'本机'}:${p} → 本机 ${l||'自动'}`))return;
  const r=await api('/api/tunnel',{name:n,rport:p,lport:l,target:t});
@@ -380,23 +429,23 @@ async function quickTunnel(n){if(!confirm(`确认新建隧道？\n\n${n} :80 →
  const r=await api('/api/tunnel',{name:n,rport:80});toast(r.ok?`隧道: ${r.url}`:'失败: '+r.err);if(r.ok){window.open(r.url,'_blank');refresh()}}
 async function stopTunnel(p){if(!confirm(`确认停止隧道 ${p}？`))return;const r=await api('/api/tunnel-stop',{lport:p});toast('已停止: '+r.stopped.join(', '));refresh()}
 async function doGet(){const n=document.getElementById('fileName').textContent,p=document.getElementById('fPath').value.trim();
- if(!p)return toast('请填远端路径');toast('取回中…（大文件耐心等待）',30000);
+ if(!p)return toast('请填远端路径');toast('⏳ 取回中…（大文件耐心等待）',30000);
  const r=await api('/api/file-get',{name:n,rpath:p});
  toast(r.ok?`已取回: ${r.local}（${r.size} bytes）`:'失败: '+r.err,5000);
  document.getElementById('fOut').textContent+=`\n${r.ok?'✅':'❌'} ${p} → ${r.local||r.err}`}
 async function doPut(){const n=document.getElementById('fileName').textContent,f=document.getElementById('fUp').files[0];
  if(!f)return toast('请选择文件');const rp=document.getElementById('fRemote').value.trim();
  if(!confirm(`确认推送到【${n}】？\n\n${f.name} (${f.size} bytes) → ${rp||'spool\\\\'+f.name}`))return;
- toast('推送中…',30000);
+ toast('⏳ 推送中…',30000);
  const buf=await f.arrayBuffer();
- const r=await fetch('/api/file-put',{method:'POST',headers:{'Content-Type':'application/octet-stream','X-Name':encodeURIComponent(n),'X-Path':encodeURIComponent(rp||('spool\\'+f.name)),'X-File':encodeURIComponent(f.name)},body:buf}).then(x=>x.json());
+ const r=await fetch('/api/file-put',{method:'POST',headers:{'Content-Type':'application/octet-stream','X-Name':encodeURIComponent(n),'X-Path':encodeURIComponent(rp||('spool\\\\'+f.name)),'X-File':encodeURIComponent(f.name)},body:buf}).then(x=>x.json());
  toast(r.ok?'推送完成: '+r.remote:'失败: '+r.err,4000);
  document.getElementById('fOut').textContent+=`\n${r.ok?'✅':'❌'} ${f.name} → ${r.remote||r.err}`}
 async function genZip(){const n=document.getElementById('newAgent').value.trim();if(!n)return toast('请填站点名');
- if(!confirm(`确认生成安装包【${n}】？\n（同名站点将生成同 id 升级包）`))return;
+ if(!confirm(`确认生成安装包【${n}】？\n（已部署的同名站点将生成同 id 升级包）`))return;
  toast('生成中…');const r=await api('/api/agent-add',{name:n});
  if(r.ok){toast('已生成'+(r.reused?'（复用 id '+r.aid+'）':''));location.href='/api/download?path='+encodeURIComponent(r.zip);refresh()}else toast('失败: '+r.err)}
-async function saveCfg2(){const d=document.getElementById('dlDir').value.trim();const r=await api('/api/config',{download_dir:d});toast(r.ok?'已保存':'失败')}
+async function saveCfg2(){const d=document.getElementById('dlDir').value.trim();const r=await api('/api/config',{download_dir:d});toast(r.ok?'下载目录已保存':'失败')}
 document.getElementById('rf').addEventListener('change',async e=>{const v=+e.target.value||30;
  const r=await api('/api/config',{refresh:v});if(r.ok){CFG.refresh=v;toast('已保存，下一轮生效（'+v+'s）');schedule()}});
 let timer=null;function schedule(){clearTimeout(timer);timer=setTimeout(()=>{refresh();schedule()},CFG.refresh*1000)}
