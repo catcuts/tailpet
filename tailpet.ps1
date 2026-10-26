@@ -1362,6 +1362,7 @@ function Show-Help {
             @('tailpet nodes', '机器总表（agent 含在线状态）'),
             @('tailpet tunnel <名> [远端端口] [本地端口]', '端口隧道：远端网页在 A 本机浏览器打开'),
             @('tailpet tunnel list', '查看活动隧道（失联记录自动清理）'),
+            @('tailpet web [-p 端口] [-d]', '本机管理页面（-d=后台，web-stop 停止）'),
             @('tailpet tunnel-stop [本地端口]', '停止隧道（不带参数=全部）'),
             @('tailpet sync-alias', '同步 C 类机器别名')
         )),
@@ -1404,6 +1405,39 @@ switch ($Cmd.ToLower()) {
     }
     'tunnel-stop' { if ($Rest.Count -gt 0) { Do-TunnelStop "$($Rest[0])" } else { Do-TunnelStop } }
     'tunnel-list' { Do-TunnelList }
+    'web'        {
+        $bg = $Rest -contains '-d'
+        $ta = @($Rest | Where-Object { "$_" -ne '-d' })
+        $port = ''
+        $pi = [array]::IndexOf(@($ta | ForEach-Object { "$_" }), '-p')
+        if ($pi -ge 0 -and $pi + 1 -lt $ta.Count) { $port = "$($ta[$pi+1])" }
+        $webpy = Join-Path $pkgDir 'web.py'
+        if (-not (Test-Path $webpy)) { Write-Output '!! 缺 web.py（从开发仓同步安装副本）'; return }
+        $cfg = Join-Path $pkgDir 'web.json'
+        if (Test-Path $cfg) {
+            try { $old = Get-Content $cfg -Raw -Encoding UTF8 | ConvertFrom-Json; if ($old.pid) { $alive = [bool](Get-Process -Id ([int]$old.pid) -ErrorAction SilentlyContinue); if ($alive) { Write-Output "!! 已有控制台实例运行 (pid $($old.pid), http://127.0.0.1:$($old.port))——tailpet web-stop 先停止"; return } } } catch { }
+        }
+        $pyArgs = @($webpy)
+        if ($port) { $pyArgs += @('--port', $port) }
+        if ($bg) { $pyArgs += '--bg' }
+        if ($bg) {
+            $proc = Start-Process python -ArgumentList $pyArgs -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $env:TEMP 'tailpet-web.log') -RedirectStandardError (Join-Path $env:TEMP 'tailpet-web.err.log')
+            Start-Sleep 2
+            if ($proc.HasExited) { Write-Output '!! 控制台启动失败（查看 %TEMP%	ailpet-web.err.log）'; return }
+            Write-Output "控制台已后台运行 (pid $($proc.Id))——停止: tailpet web-stop"
+        } else {
+            Write-Output '控制台前台运行中（Ctrl+C 停止）...'
+            & python @pyArgs
+        }
+    }
+    'web-stop'   {
+        $cfg = Join-Path $pkgDir 'web.json'
+        if (-not (Test-Path $cfg)) { Write-Output '(无后台控制台记录)'; return }
+        try { $old = Get-Content $cfg -Raw -Encoding UTF8 | ConvertFrom-Json } catch { $old = $null }
+        if ($old -and $old.pid) {
+            try { Stop-Process -Id ([int]$old.pid) -Force -ErrorAction Stop; Write-Output "已停止 (pid $($old.pid))" } catch { Write-Output "进程已不在（pid $($old.pid)）" }
+        } else { Write-Output '(web.json 无 pid——前台实例请用 Ctrl+C)' }
+    }
     'file'       {
         $sub = "$($Rest[0])"
         if ($sub -eq 'list') { Do-FileList "$($Rest[1])" }

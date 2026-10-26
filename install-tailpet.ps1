@@ -14,7 +14,7 @@ Write-Output "== tailpet installer =="
 # ---- 1/4 复制程序 ----
 Write-Output '[1/4] Copying program files...'
 New-Item -ItemType Directory -Force -Path $dst, "$dst\bin", "$dst\lib", "$dst\bootstrap" | Out-Null
-foreach ($f in @('tailpet.ps1', 'bridge.py', 'hub.py', 'params.example.json')) { Copy-Item "$src\$f" $dst -Force }
+foreach ($f in @('tailpet.ps1', 'bridge.py', 'hub.py', 'ssh-relay.py', 'web.py', 'params.example.json')) { Copy-Item "$src\$f" $dst -Force }
 Copy-Item "$src\bin\tailpet.cmd" "$dst\bin\" -Force
 # Git Bash shim（无扩展名 + shebang，绕过 cmd 层——&& / 引号语义正常）
 $bashShim = "#!/bin/sh`nexec powershell -NoProfile -ExecutionPolicy Bypass -File `"$dst\tailpet.ps1`" `"`$@`"`n"

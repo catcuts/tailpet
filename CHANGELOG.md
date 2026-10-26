@@ -26,6 +26,9 @@
 - agent list / nodes / gen-prompt 增 VER 列：agent 版本号随心跳上报，`-` 即待升级
 - `tailpet tunnel-list`：查看活动隧道，失联记录自动清理
 
+### 管理页面
+- `tailpet web [-p 端口] [-d]`：本机 Web 控制台（web.py，纯标准库）——机器列表/命令下发/隧道管理/文件取回推送/安装包生成下载；危险操作二次确认；自动刷新间隔与下载目录页面可配（下一轮生效）；前台 Ctrl+C 或后台 `tailpet web-stop`；防重复启动
+
 ### 实战反馈修复（沐川站点一线使用报告）
 - `-c`/`-C` 参数被吞（grep -c/ssh -c 全中招）：tailpet.ps1 移除 param 块改 $args 裸收——PowerShell 参数缩写绑定会把 -c 匹配成 -Cmd
 - `file put` 挂死修复（双根因）：filedone 先删分块致 worker 404（改顺序）；hub 404 响应无 Content-Length 致 keep-alive 客户端无限等待（补 CL+close）

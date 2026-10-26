@@ -87,12 +87,17 @@ tailpet nodes                             # 机器总表
 tailpet tunnel 公司B 80                    # 本机浏览器打开 B 的 80 端口 web
 tailpet tunnel 公司B 8080 192.168.38.201   # 打开 B 内网另一台机器的 8080
 tailpet tunnel-stop [本地端口]              # 停止隧道（不带参数=全部）
+tailpet web                                # 本机管理页面（浏览器图形化：机器/命令/隧道/文件/安装包）
 tailpet tunnel-list                        # 查看活动隧道（失联记录自动清理）
 tailpet gen-prompt                        # 生成机器连接说明（复制到剪贴板，喂给 AI 用）
 tailpet agent rm <名>                      # 吊销 agent
 ```
 
 同目标的隧道重复执行会直接复用已有实例，不会越堆越多。中继是透明 TCP：HTTP/HTTPS/WebSocket 皆可用，延迟约等于两次公网往返（实测 ~35ms）。
+
+## 管理页面（tailpet web）
+
+`tailpet web [-p 端口] [-d]` 启动本机管理页面（仅 127.0.0.1 可访问，自动打开浏览器）：机器列表（在线/版本）、下发命令（带确认与超时）、隧道管理、文件取回/推送（下载目录可配置）、生成 agent 安装包（幂等升级）。`-d` 后台运行 + `tailpet web-stop` 停止；危险操作二次确认；自动刷新间隔页面可配（下一轮生效）。
 
 ## 安全模型
 
