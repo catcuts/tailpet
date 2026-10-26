@@ -1,11 +1,10 @@
 ﻿# tailpet - 自建组网管理器（S 控制面 / A 管理机 / B 现场设备）
 # 用法: tailpet <命令> [参数...]   （tailpet help 查看全部）
-param(
-    [string]$Cmd = 'help'
-)
-# 普通参数块（不加 [Parameter()] 特性——特性会把脚本变成高级脚本并注入通用参数，
-# 用户的命令里出现 -o/-c 这类旗标时会与 -OutVariable 等二义性冲突）
-$Rest = @($args)
+# 无 param 块：所有参数原样进 $args——参数名缩写绑定（-c 匹配 -Cmd 等）曾把用户命令里的
+# 旗标吃掉导致命令静默变形（grep -c / ssh -c 全踩过），普通 $args 不做任何绑定
+$Cmd = [string]$args[0]
+if (-not $Cmd) { $Cmd = 'help' }
+$Rest = @($args | Select-Object -Skip 1)
 
 $ErrorActionPreference = 'Continue'
 $pkgDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -404,12 +403,31 @@ function Do-AgentAdd([string]$name) {
         Copy-Item $sshZip (Join-Path $tmpDir 'OpenSSH-Win64.zip')
         $zipItems += (Join-Path $tmpDir 'OpenSSH-Win64.zip')
     }
+    $plinkSrc = Join-Path (Join-Path (Join-Path $pkgDir 'bootstrap') 'cache') 'plink.exe'
+    $hasWsp = Test-Path $plinkSrc
+    if ($hasWsp) {
+        Copy-Item $plinkSrc (Join-Path $tmpDir 'plink.exe')
+        $zipItems += (Join-Path $tmpDir 'plink.exe')
+    }
     Compress-Archive -Path $zipItems -DestinationPath $outZip -Force
     Remove-Item $tmpDir -Recurse -Force
     Write-Output "Agent 包已生成: $outZip"
-    if ($hasSsh) { Write-Output '  已内嵌离线 OpenSSH（装完即有 ssh-c 命令，可执行其内网 C 机的命令）' } else { Write-Output '  !! bootstrap\cache\OpenSSH-Win64.zip 缺失——本包不含 OpenSSH' }
+    if ($hasSsh) { Write-Output '  已内嵌离线 OpenSSH + win-sshpass（装完即有 ssh-c 公钥模式 / ssh-p 密码模式）' } else { Write-Output '  !! bootstrap\cache 离线包缺失——本包不含 OpenSSH/win-sshpass' }
     Write-Output "  拷到目标机解压，双击 Add-Agent.bat（需管理员）——上线后 tailpet agent list 显示 online"
     Write-Output "  执行命令: tailpet agent exec $name <命令>；吊销: tailpet agent rm $name"
+    # SSH ProxyCommand 条目：让 ssh <名> 透明经中继连接
+    $sshConfig = Join-Path $env:USERPROFILE '.ssh\config'
+    $sshDir = Split-Path $sshConfig
+    if (-not (Test-Path $sshDir)) { New-Item -ItemType Directory -Force -Path $sshDir | Out-Null }
+    $marker = '# tailpet-agent:' + $aid
+    $existingCfg = if (Test-Path $sshConfig) { Get-Content $sshConfig -Raw } else { '' }
+    if ($existingCfg -notlike "*$marker*") {
+        $nl = [Environment]::NewLine
+        $relayCmd = 'python "' + (Join-Path $pkgDir 'ssh-relay.py') + '" ' + $aid + ' 127.0.0.1 22'
+        $block = "$marker${nl}Host $name${nl}    ProxyCommand $relayCmd${nl}    User administrator$nl"
+        Add-Content -Path $sshConfig -Value $block -Encoding UTF8
+        Write-Output '  SSH config 条目已写入 ~/.ssh/config（ssh 公司B 即可透明连接）'
+    }
 }
 
 function Get-AgentMetas {
@@ -584,15 +602,19 @@ function Do-FilePut([string]$name, [string]$localPath, [string]$remotePath) {
         Invoke-WebRequest -UseBasicParsing -TimeoutSec 180 -Uri $uri -Method POST -Body $slice -ContentType 'application/octet-stream' | Out-Null
         $seq = $seq + 1
     }
-    $done = (Invoke-WebRequest -UseBasicParsing -TimeoutSec 120 -Uri ($base + '/filedone?admin=' + $adminToken + '&id=' + $id + '&name=' + $rname + '&chunks=' + ($seq - 1)) -Method POST -Body '{}' -ContentType 'application/json').Content | ConvertFrom-Json
+    # 注意顺序：不能先 filedone——filedone 会把分块组装并删除，B 的 worker 就 404 拿不到了。
+    # 正确顺序：分块留着 → B 的 worker 按 seq 逐块下载 → exec 返回后 filedel 清理全部残留
     if (-not $remotePath) { $remotePath = 'C:' + [char]92 + 'ProgramData' + [char]92 + 'tailpet' + [char]92 + 'spool' + [char]92 + (Split-Path -Leaf $localPath) }
-    $sha8 = $done.sha256.Substring(0, 8)
-    Write-Output ("hub 已暂存 ($($done.size) bytes, sha $sha8...) —— 下发到该机 $remotePath")
+    Write-Output ("hub 已暂存 $($bytes.Length) bytes —— 下发到该机 $remotePath")
     $tokById = ''
     $metas2 = Get-AgentMetas
     if ($metas2) { foreach ($kv in $metas2.PSObject.Properties) { if ($kv.Name -eq $id) { $tokById = $kv.Value.token } } }
-    Do-AgentExec $name ('powershell -NoProfile -ExecutionPolicy Bypass -File ' + (Join-Path $env:ProgramData 'tailpet\filexfer.ps1') + ' -Mode dn -Hub http://' + $P.server.host + ':8443 -Aid ' + $id + ' -Token ' + $tokById + ' -Name ' + $rname + ' -Path "' + $remotePath + '" -DataDir ' + $env:ProgramData + '\tailpet')
-    Write-Output '已下发完成（如上 exit 0 即成功）—— 验证: tailpet agent exec <名> "type <目标路径>"'
+    Do-AgentExec $name ('powershell -NoProfile -ExecutionPolicy Bypass -File C:/ProgramData/tailpet/filexfer.ps1 -Mode dn -Hub http://' + $P.server.host + ':8443 -Aid ' + $id + ' -Token ' + $tokById + ' -Name ' + $rname + ' -Path "' + $remotePath + '" -DataDir C:/ProgramData/tailpet')
+    # 清理 hub 侧分块（filedel 连带 part.*）
+    try {
+        Invoke-WebRequest -UseBasicParsing -TimeoutSec 30 -Uri ($base + '/filedel?admin=' + $adminToken + '&id=' + $id + '&name=' + $rname) -Method POST -Body '{}' -ContentType 'application/json' | Out-Null
+    } catch { }
+    Write-Output '已下发（如上 exit 0 即成功）—— 验证: tailpet agent exec <名> "type <目标路径>"'
 }
 
 function Do-AgentList {
@@ -1180,8 +1202,8 @@ function Build-PromptText($item, $jumpInfo) {
         $lines += '- **执行命令**: `tailpet agent exec ' + $item.Name + ' <命令>` '
         $lines += '  —— 在该机 cmd 里执行，非交互，120 秒超时。'
         $lines += ''
-        $lines += '- **该机内网 C 机**: `tailpet agent exec ' + $item.Name + ' "ssh-c 用户@C_IP 命令"` '
-        $lines += '  —— C 需已装 sshd 并持有该机公钥（公钥在 hub /metas 的 pubkey 字段，或该机 `type C:\ProgramData\tailpet\keys\id_ed25519.pub`）。'
+        $lines += '- **该机内网 C 机（密码模式，推荐）**: `tailpet agent exec ' + $item.Name + ' "ssh-p 密码 用户@C_IP 命令"` —— 走 win-sshpass，C 机零预装'
+        $lines += '  公钥模式（C 已装该机公钥时）: `tailpet agent exec ' + $item.Name + ' "ssh-c 用户@C_IP 命令"`（公钥在 hub /metas 的 pubkey 字段）。'
         $lines += ''
         $lines += '- **Web 服务访问**: `tailpet tunnel ' + $item.Name + ' <服务端口>` 其中：'
         $lines += '  - <服务端口>指目标机上的端口（web/RDP 等任意 TCP）；'
@@ -1190,7 +1212,9 @@ function Build-PromptText($item, $jumpInfo) {
         $lines += '  - 默认转该机 127.0.0.1，服务只绑该机内网 IP 时：`tailpet tunnel ' + $item.Name + ' <服务端口> <本地端口> <目标IP>`；'
         $lines += '  - 查看用 `tailpet tunnel-list`；停止用 `tailpet tunnel-stop [本地端口]`（无参数=全部）。'
         $lines += ''
-        $lines += '- **命令规则**: 单行（多步用 && 串联）；引号最多一层；交互确认一律加静默参数；`!` 会被吞掉；不要 chcp 65001。'
+        $lines += '- **命令规则**: 单行；引号最多一层；交互确认一律加静默参数；`!` 会被吞掉；不要 chcp 65001。'
+        $lines += '  长度上限约 8K（超长内容用 file put 推脚本再执行）；`|` 管道符易被多层 shell 拆坏（grep 多模式用多个 -e）；'
+        $lines += '  多条 ssh 命令不要用 && 串联（一条 exec 一条命令）；密码含特殊字符时 ssh-p 不可靠，改用 EncodedCommand。'
         $lines += '- **大输出/文件**: 大输出命令一律重定向到该机文件再取回——`tailpet agent exec ' + $item.Name + ' "bigcmd > C:\ProgramData\tailpet\spool\out.log"` 然后 `tailpet file get ' + $item.Name + ' C:\ProgramData\tailpet\spool\out.log`；推文件 `tailpet file put ' + $item.Name + ' 本地文件`；大日志先 makecab 压缩；exec 直接回传只适合小结果（<50KB）；长命令加 `-Timeout 秒`'
         $lines += ''
         $lines += '- **注意**:'

@@ -83,6 +83,43 @@ if ($Install) {
             # OpenSSH 拒绝 ACL 过开的私钥：文件层兜底（并清掉显式残留）
             Start-Process icacls.exe -ArgumentList @($keyFile, '/inheritance:r', '/grant', '*S-1-5-18:F', '/grant', '*S-1-5-32-544:F') -Wait -WindowStyle Hidden
             $sshc = '@echo off' + [Environment]::NewLine + ('set "PATH=' + $sshDir + ';%PATH%"') + [Environment]::NewLine + ('"' + (Join-Path $sshDir 'ssh.exe') + '" -i "' + $keyFile + '" -o StrictHostKeyChecking=accept-new -o BatchMode=yes %*')
+            # plink：密码模式 SSH（win-sshpass 是新 Go 构建，2008 R2 挂死；plink 全兼容）
+            # 原理：ssh-keyscan 现取主机公钥 → plink -hostkey 锁定 → -pw 密码，全程无提示
+            $plinkSrc = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) 'plink.exe'
+            if (-not (Test-Path $plinkSrc)) { $plinkSrc = Join-Path $dataDir 'plink.exe' }
+            if (Test-Path $plinkSrc) {
+                $plinkDst = Join-Path $dataDir 'plink.exe'
+                if ([IO.Path]::GetFullPath($plinkSrc) -ne [IO.Path]::GetFullPath($plinkDst)) { Copy-Item $plinkSrc $plinkDst -Force }
+                $sshpPs = @'
+param([string]$Pw, [string]$Target)
+# ssh-p.ps1 - 密码模式 SSH：keyscan 取钥 + plink -hostkey（TOFU）+ -pw，非交互零提示
+$base = Join-Path $env:ProgramData 'tailpet'
+$parts = $Target -split '@', 2
+$ruser = ''
+$rhost = $Target
+if ($parts.Count -ge 2) { $ruser = $parts[0]; $rhost = $parts[1] }
+$ks = & (Join-Path $base 'OpenSSH-Win64\ssh-keyscan.exe') -t ed25519 $rhost 2>$null | Where-Object { $_ -notmatch '^#' } | Select-Object -First 1
+if (-not $ks) { Write-Output "ssh-p: keyscan failed - host unreachable? $rhost"; exit 1 }
+$b64 = ($ks -split ' ')[2]
+$plinkArgs = @('-ssh', '-batch', '-hostkey', $b64, '-pw', $Pw)
+if ($ruser) { $plinkArgs += @('-l', $ruser) }
+$plinkArgs += $rhost
+$plinkArgs += @($args)
+$outF = Join-Path $env:TEMP ('sp-out-' + $PID + '.txt')
+$errF = Join-Path $env:TEMP ('sp-err-' + $PID + '.txt')
+$nullF = Join-Path $env:TEMP 'sp-null.txt'
+if (-not (Test-Path $nullF)) { New-Item -ItemType File -Force -Path $nullF | Out-Null }
+$p = Start-Process (Join-Path $base 'plink.exe') -ArgumentList $plinkArgs -RedirectStandardOutput $outF -RedirectStandardError $errF -RedirectStandardInput $nullF -Wait -PassThru
+if (Test-Path $outF) { Get-Content $outF | ForEach-Object { Write-Output $_ } }
+if (Test-Path $errF) { $errTxt = @(Get-Content $errF) | Where-Object { $_ }; if ($errTxt) { Write-Output ('[ssh-p] ' + ($errTxt -join ' | ')) } }
+Remove-Item $outF, $errF -ErrorAction SilentlyContinue
+exit $p.ExitCode
+'@
+                [IO.File]::WriteAllText((Join-Path $dataDir 'ssh-p.ps1'), $sshpPs, (New-Object Text.UTF8Encoding $true))
+                $sshpBat = '@echo off' + [Environment]::NewLine + ('powershell -NoProfile -ExecutionPolicy Bypass -File "' + (Join-Path $dataDir 'ssh-p.ps1') + '" %*')
+                Set-Content -Path (Join-Path $dataDir 'ssh-p.bat') -Value $sshpBat -Encoding ascii
+                Write-Output 'password ssh ready: ssh-p <密码> 用户@C_IP "命令"'
+            }
             Set-Content -Path (Join-Path $dataDir 'ssh-c.bat') -Value $sshc -Encoding ascii
             Write-Output 'OpenSSH client ready (ssh-c user@C-IP "cmd" -> LAN machines)'
         } else {

@@ -16,6 +16,9 @@ Write-Output '[1/4] Copying program files...'
 New-Item -ItemType Directory -Force -Path $dst, "$dst\bin", "$dst\lib", "$dst\bootstrap" | Out-Null
 foreach ($f in @('tailpet.ps1', 'bridge.py', 'hub.py', 'params.example.json')) { Copy-Item "$src\$f" $dst -Force }
 Copy-Item "$src\bin\tailpet.cmd" "$dst\bin\" -Force
+# Git Bash shim（无扩展名 + shebang，绕过 cmd 层——&& / 引号语义正常）
+$bashShim = "#!/bin/sh`nexec powershell -NoProfile -ExecutionPolicy Bypass -File `"$dst\tailpet.ps1`" `"`$@`"`n"
+[IO.File]::WriteAllText("$dst\bin\tailpet", $bashShim -replace "`n", [Environment]::NewLine, (New-Object Text.UTF8Encoding $false))
 Copy-Item "$src\lib\*" "$dst\lib\" -Force
 Copy-Item "$src\bootstrap\*" "$dst\bootstrap\" -Force
 New-Item -ItemType Directory -Force -Path "$dst\bootstrap\cache" | Out-Null
