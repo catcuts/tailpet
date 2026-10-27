@@ -6,6 +6,7 @@ import glob
 import hashlib
 import json
 import os
+import re
 import secrets
 import socket
 import threading
@@ -171,7 +172,10 @@ class Handler(BaseHTTPRequestHandler):
                 fp = os.path.join(files_dir(aid), name + '.part.' + seq)
                 if not os.path.isfile(fp):
                     self.send_response(404)
+                    self.send_header('Content-Length', '0')
+                    self.send_header('Connection', 'close')
                     self.end_headers()
+                    self.close_connection = True
                     return
                 return send_bytes(self, open(fp, 'rb').read())
             if self.path.startswith('/file?') or self.path == '/file':
@@ -197,7 +201,10 @@ class Handler(BaseHTTPRequestHandler):
             fp = os.path.join(files_dir(aid), name + '.part.' + seq)
             if not os.path.isfile(fp):
                 self.send_response(404)
+                self.send_header('Content-Length', '0')
+                self.send_header('Connection', 'close')
                 self.end_headers()
+                self.close_connection = True
                 return
             return send_bytes(self, open(fp, 'rb').read())
         cmd_path = os.path.join(agent_dir(aid), 'cmd.b64')
@@ -314,7 +321,7 @@ class Handler(BaseHTTPRequestHandler):
             meta['lastSeen'] = int(time.time())
             meta['ip'] = self.client_address[0]
             meta.setdefault('token', body.get('token'))
-            if body.get('name'):
+            if body.get('name') and not meta.get('name_lock'):
                 meta['name'] = body.get('name')
             if body.get('pubkey'):
                 meta['pubkey'] = body.get('pubkey')
@@ -348,6 +355,16 @@ class Handler(BaseHTTPRequestHandler):
             except OSError:
                 pass
             return self._json(200, {'ok': True})
+        if path == '/rename' and admin == ADMIN:
+            newname = str(body.get('name') or '').strip()
+            if not safe_id(aid) or not newname or len(newname) > 40 or re.search(r'[\/:*?"<>|\s]', newname):
+                return self._json(400, {'err': 'bad name'})
+            mpath = os.path.join(d, 'meta.json')
+            meta = read_json(mpath) or {}
+            meta['name'] = newname
+            meta['name_lock'] = True  # 锁定：心跳携带的旧名不再覆盖
+            write_json(mpath, meta)
+            return self._json(200, {'ok': True, 'name': newname})
         if path == '/purge' and admin == ADMIN:
             import shutil
             shutil.rmtree(d, ignore_errors=True)
