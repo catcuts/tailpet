@@ -333,6 +333,11 @@ font-size:11.5px;color:var(--sub);font-weight:600}
 .cp{border:none;background:none;padding:2px 4px;font-size:12px;color:#94a3b8;cursor:pointer;vertical-align:middle}
 .cp:hover{color:var(--pri);background:var(--pri-soft);border-radius:5px}
 input[type=checkbox]{accent-color:var(--pri);width:15px;height:15px;cursor:pointer}
+button.danger{background:var(--bad);border-color:var(--bad);color:#fff;box-shadow:0 1px 2px rgba(225,29,72,.25)}
+button.danger:hover{background:#be123c}
+#askModal .mbox{max-width:420px}
+#askMsg{white-space:pre-line;line-height:1.65;font-size:13px;color:#334155;margin:0 0 14px;
+max-height:46vh;overflow:auto;word-break:break-all}
 .row{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin:8px 0}
 .hint{font-size:11.5px;color:#94a3b8}
 .kv{font-size:12.5px;color:var(--sub)}
@@ -342,8 +347,8 @@ input[type=checkbox]{accent-color:var(--pri);width:15px;height:15px;cursor:point
 .nm.editing{border-color:var(--pri);background:#fff;box-shadow:0 0 0 3px var(--pri-soft);font-weight:400}
 #toast{position:fixed;bottom:22px;right:22px;background:#0f172a;color:#fff;padding:11px 18px;border-radius:12px;
 font-size:13px;display:none;z-index:99;box-shadow:0 8px 24px rgba(15,23,42,.28);max-width:60vw}
-.modal{position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:50;display:none;align-items:flex-start;
-justify-content:center;padding:5vh 16px}
+.modal{position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:50;display:none;align-items:center;
+justify-content:center;padding:20px}
 .modal.show{display:flex}
 .mbox{background:#fff;border-radius:16px;box-shadow:0 24px 64px rgba(15,23,42,.3);width:100%;max-width:760px;
 max-height:88vh;display:flex;flex-direction:column;overflow:hidden}
@@ -428,6 +433,18 @@ footer{margin:8px 22px 22px;color:#94a3b8;font-size:11.5px;text-align:center}
  </div>
 </div></div>
 
+<div class="modal" id="askModal"><div class="mbox">
+ <div class="mhead" id="askTitle">确认</div>
+ <div class="mbody">
+  <div id="askMsg"></div>
+  <div class="row" id="askInputRow" style="display:none"><input id="askInput" style="flex:1"></div>
+  <div class="row" style="justify-content:flex-end;gap:8px">
+   <button onclick="askResolve(false)">取消</button>
+   <button class="pri" id="askOkBtn" onclick="askResolve(true)">确认</button>
+  </div>
+ </div>
+</div></div>
+
 <div id="toast"></div>
 <footer>tailpet 控制台 · 仅本机访问 · 危险操作需确认</footer>
 <script>
@@ -446,11 +463,11 @@ function updateSelUI(){
  bRm.style.display=SELA.size?'':'none';bRm.textContent=`删除所选 (${SELA.size})`;
  bSt.style.display=SELT.size?'':'none';bSt.textContent=`停止所选 (${SELT.size})`}
 async function rmAgents(){const names=[...SELA];if(!names.length)return;
- if(!confirm(`确认删除所选 ${names.length} 台机器？\n\n${names.join('、')}\n\n注意：仅删除 hub 注册（agent 若仍在运行会自动重新注册；彻底移除需在目标机卸载）。`))return;
+ if(!await ask({title:`删除 ${names.length} 台机器`,danger:true,msg:`确认删除所选 ${names.length} 台机器？\n\n${names.join('、')}\n\n注意：仅删除 hub 注册（agent 若仍在运行会自动重新注册；彻底移除需在目标机卸载）。`}))return;
  for(const n of names){await api('/api/agent-rm',{name:n})}
  SELA.clear();toast(`已删除 ${names.length} 台`);refresh()}
 async function stopSelTunnels(){const ps=[...SELT];if(!ps.length)return;
- if(!confirm(`确认停止所选 ${ps.length} 条隧道？\n\n端口：${ps.join('、')}`))return;
+ if(!await ask({title:`停止 ${ps.length} 条隧道`,danger:true,msg:`确认停止所选 ${ps.length} 条隧道？\n\n端口：${ps.join('、')}`}))return;
  for(const p of ps){await api('/api/tunnel-stop',{lport:p})}
  SELT.clear();toast(`已停止 ${ps.length} 条`);refresh()}
 function copyName(n){(navigator.clipboard?navigator.clipboard.writeText(n):Promise.reject()).then(
@@ -523,7 +540,7 @@ function openCmd(name,aid){CM={name,aid};document.getElementById('cmName').textC
  document.getElementById('cmdModal').classList.add('show');renderHist();
  setTimeout(()=>document.getElementById('cmCmd').focus(),50)}
 async function runInModal(){const c=document.getElementById('cmCmd').value.trim(),t=+document.getElementById('cmTmo').value||120;
- if(!c)return;if(!confirm(`确认在【${CM.name}】执行命令？\n\n${c}\n\n超时 ${t}s`))return;
+ if(!c)return;if(!await ask({title:'执行命令',msg:`确认在【${CM.name}】执行命令？\n\n${c}\n\n超时 ${t} 秒`}))return;
  document.getElementById('cmCmd').value='';
  const h=loadHist();h.push({t:new Date().toLocaleString(),cmd:c,exit:'…',out:'执行中…'});saveHist(h);renderHist();
  const r=await api('/api/exec',{name:CM.name,cmd:c,timeout:t});
@@ -538,7 +555,7 @@ async function doGet(){const n=document.getElementById('fmName').textContent,p=d
  document.getElementById('fOut').textContent+=`\n${r.ok?'✅':'❌'} ${p} → ${r.local||r.err}`}
 async function doPut(){const n=document.getElementById('fmName').textContent,f=document.getElementById('fUp').files[0];
  if(!f)return toast('请选择文件');const rp=document.getElementById('fRemote').value.trim();
- if(!confirm(`确认推送到【${n}】？\n\n${f.name} (${f.size} bytes) → ${rp||'spool\\\\'+f.name}`))return;
+ if(!await ask({title:'推送文件',msg:`确认推送到【${n}】？\n\n${f.name} (${f.size} bytes) → ${rp||'spool\\'+f.name}`}))return;
  toast('⏳ 推送中…',30000);
  const buf=await f.arrayBuffer();
  const r=await fetch('/api/file-put',{method:'POST',headers:{'Content-Type':'application/octet-stream','X-Name':encodeURIComponent(n),'X-Path':encodeURIComponent(rp||('spool\\\\'+f.name)),'X-File':encodeURIComponent(f.name)},body:buf}).then(x=>x.json());
@@ -549,21 +566,21 @@ function openTunModal(name){fillAgentSel(name||null);
  if(name)document.getElementById('tAgent').value=name;
  document.getElementById('tunModal').classList.add('show')}
 async function createTun(){const n=tAgent.value,p=+tPort.value||80,l=tLport.value.trim(),t=tTarget.value.trim();
- if(!confirm(`确认新建隧道？\n\n${n} ${t||'本机'}:${p} → 本机 ${l||'自动'}`))return;
+ if(!await ask({title:'新建隧道',msg:`确认新建隧道？\n\n${n} ${t||'本机'}:${p} → 本机 ${l||'自动'}`}))return;
  const r=await api('/api/tunnel',{name:n,rport:p,lport:l,target:t});
  if(r.ok){closeModals();toast(`隧道已建立: ${r.url}`);window.open(r.url,'_blank');refresh()}else toast('失败: '+r.err)}
-async function stopTunnel(p){if(!confirm(`确认停止隧道 ${p}？`))return;const r=await api('/api/tunnel-stop',{lport:p});toast('已停止: '+r.stopped.join(', '));refresh()}
-async function stopAllTunnels(){if(!TUN.length)return toast('无隧道');if(!confirm(`确认停止全部 ${TUN.length} 条隧道？`))return;
+async function stopTunnel(p){if(!await ask({title:'停止隧道',danger:true,msg:`确认停止隧道 ${p}？`}))return;const r=await api('/api/tunnel-stop',{lport:p});toast('已停止: '+r.stopped.join(', '));refresh()}
+async function stopAllTunnels(){if(!TUN.length)return toast('无隧道');if(!await ask({title:'全部停止',danger:true,msg:`确认停止全部 ${TUN.length} 条隧道？`}))return;
  const r=await api('/api/tunnel-stop',{});toast('已停止: '+r.stopped.join(', '));refresh()}
 
-function addAgent(){const n=prompt('新站点名（中文/英文均可，不含空格）：');if(!n)return;
+async function addAgent(){const n=await ask({title:'新增机器',input:true,def:'',msg:'新站点名（中文/英文均可，不含空格）：'});if(!n)return;
  const name=n.trim();if(!name)return;
- if(!confirm(`确认为【${name}】生成安装包并下载？`))return;
+ if(!await ask({title:'新增机器',msg:`确认为【${name}】生成安装包并下载？`}))return;
  genPkg(name,true)}
-async function genPkgFor(name){if(!confirm(`确认为【${name}】生成/更新安装包并下载？\n（已部署的同名站点 = 同 id 升级包，不断线）`))return;genPkg(name,false)}
+async function genPkgFor(name){if(!await ask({title:'生成安装包',msg:`确认为【${name}】生成/更新安装包并下载？\n（已部署的同名站点 = 同 id 升级包，不断线）`}))return;genPkg(name,false)}
 async function genPkg(name,fresh){toast('生成中…');const r=await api('/api/agent-add',{name});
  if(r.ok){toast('已生成'+(r.reused?'（复用 id '+r.aid+'）':''));location.href='/api/download?path='+encodeURIComponent(r.zip);refresh()}else toast('失败: '+r.err)}
-async function rmAgent(name){if(!confirm(`确认删除机器【${name}】？\n\n注意：仅删除 hub 注册（该机 agent 若仍在运行会自动重新注册；彻底移除需在该机卸载 agent）。`))return;
+async function rmAgent(name){if(!await ask({title:`删除 ${name}`,danger:true,msg:`确认删除机器【${name}】？\n\n注意：仅删除 hub 注册（该机 agent 若仍在运行会自动重新注册；彻底移除需在该机卸载 agent）。`}))return;
  const r=await api('/api/agent-rm',{name});toast(r.ok?'已删除: '+name:'失败: '+r.err);refresh()}
 
 async function saveCfg2(){const d=document.getElementById('dlDir').value.trim();const r=await api('/api/config',{download_dir:d});toast(r.ok?'下载目录已保存':'失败')}
@@ -573,7 +590,22 @@ document.getElementById('agFilter').addEventListener('input',renderAgents);
 document.getElementById('agStat').addEventListener('change',renderAgents);
 document.getElementById('tFilter').addEventListener('input',renderTunnels);
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModals()});
-function closeModals(){document.querySelectorAll('.modal').forEach(m=>m.classList.remove('show'))}
+let _askRes=null,_askVal=false;
+function askResolve(ok){const m=document.getElementById('askModal');m.classList.remove('show');
+ if(_askRes){const r=_askRes;_askRes=null;r(ok)}}
+function ask({title,msg,danger,input,def}){
+ return new Promise(res=>{_askRes=res;_askVal=!!input;
+  document.getElementById('askTitle').textContent=title||'确认';
+  document.getElementById('askMsg').textContent=msg||'';
+  const ir=document.getElementById('askInputRow'),ip=document.getElementById('askInput');
+  ir.style.display=input?'':'none';if(input){ip.value=def||''}
+  const ok=document.getElementById('askOkBtn');
+  ok.className=danger?'danger':'pri';ok.textContent=danger?'确认删除':'确认';
+  const m=document.getElementById('askModal');m.classList.add('show');
+  if(input){ip.onkeydown=e=>{if(e.key==='Enter')askResolve(true)};setTimeout(()=>{ip.focus();ip.select()},50)}
+  else setTimeout(()=>ok.focus(),50)})}
+function closeModals(){document.querySelectorAll('.modal').forEach(m=>m.classList.remove('show'));
+ if(_askRes){const r=_askRes;_askRes=null;r(_askVal?null:false)}}
 let timer=null;function schedule(){clearTimeout(timer);timer=setTimeout(()=>{refresh();schedule()},CFG.refresh*1000)}
 refresh();schedule();
 </script></body></html>'''
