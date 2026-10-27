@@ -293,13 +293,8 @@ box-shadow:0 1px 2px rgba(15,23,42,.04);padding:16px 18px}
 .bar>*{align-self:center}
 .bar h3,.bar .cnt,.bar .hint,.bar .hstat{line-height:28px}
 .bar button,.bar input,.bar select{height:28px;padding:0 11px;line-height:26px}
-/* 工具栏控件无边框胶囊风：与无边框标题形态一致（边框顶边曾比文字字形顶边高 ~6px，观感偏上）；
-   hover 加深底色，聚焦才出现边框 */
-.bar button:not(.pri),.bar input,.bar select{border-color:transparent;background:#f1f5f9}
-.bar button:not(.pri):hover,.bar input:hover,.bar select:hover{background:#e2e8f0;border-color:transparent}
-.bar input:focus,.bar select:focus{border-color:var(--pri);background:#fff}
-.bar button.warn{background:#fff1f2;border-color:transparent}
-.bar button.warn:hover{background:#ffe4e6}
+/* 光学补偿：边框顶边比标题字形顶边高 ~7px（字形在 28px 行框内居中有 leading）——控件下移对齐视觉顶边 */
+.bar button,.bar input,.bar select{position:relative;top:4px}
 .bar h3{margin:0;font-size:13.5px;display:flex;align-items:center;gap:8px;font-weight:650}
 .bar .m{font-size:15px}
 .bar .cnt{color:var(--sub);font-weight:400;font-size:12px}
