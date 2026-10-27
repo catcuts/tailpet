@@ -319,8 +319,11 @@ def make_state():
     tunnels = []
     for x in tunnels_load():
         alive = proc_alive(x.get('pid', 0))
+        started = x.get('started', '')
+        if not x.get('ts') and re.match(r'^\d{2}-\d{2} \d{2}:\d{2}$', started or ''):
+            started = time.strftime('%Y-') + started + ':00'  # 旧记录迁移：补年份与秒
         tunnels.append({'port': x['port'], 'target': x['target'],
-                        'started': (time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(x['ts'])) if x.get('ts') else x.get('started', '')),
+                        'started': (time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(x['ts'])) if x.get('ts') else started),
                         'via': x.get('via', ''), 'alive': alive})
     cfg = load_cfg()
     return {'hub_ok': hub_ok, 'agents': agents, 'tunnels': tunnels,
