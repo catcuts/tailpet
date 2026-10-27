@@ -608,7 +608,7 @@ function renderTunnels(){const list=tFiltered();
   tr.innerHTML=`<td><input type="checkbox" ${SELT.has(String(t.port))?'checked':''} onchange="selT('${t.port}',this.checked)"></td>
   <td><b>${t.port}</b></td><td>${machine?escHtml(machine):'<span class="hint">—</span>'}</td><td>${t.via?escHtml(t.via):'<span class="hint">—</span>'}</td><td>${escHtml(tgt)}</td>
   <td><span class="badge ${t.alive?'on':'off'}"><span class="d"></span>${t.alive?'运行中':'已失联'}</span></td>
-  <td class="kv">${t.started}</td><td style="white-space:nowrap">${(!t.alive&&t.target.includes(' -> '))?`<button class="ghost" onclick="rebuildTunnel(${t.port})">重建</button> `:''}<button class="warn" onclick="stopTunnel(${t.port})">停止</button></td>`;tb.appendChild(tr)}}
+  <td class="kv">${t.started}</td><td style="white-space:nowrap">${(!t.alive&&t.target.includes(' -> '))?`<button onclick="rebuildTunnel(${t.port})">重建</button> `:''}<button class="warn" onclick="stopTunnel(${t.port})">停止</button></td>`;tb.appendChild(tr)}}
 function fillAgentSel(keep){const sel=document.getElementById('tAgent');const k=keep||sel.value;sel.innerHTML='';
  for(const a of AG){const o=document.createElement('option');o.value=a.name;o.textContent=a.name;sel.appendChild(o)}
  if(k)sel.value=k}
