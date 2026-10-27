@@ -255,7 +255,7 @@ function Get-FreePort {
 function Do-Tunnel([string]$token, [string]$rport = '80', [string]$lport = '', [string]$targetHost = '', [switch]$NoBrowse) {
     if (-not $token) {
         Write-Output 'usage: tailpet tunnel <机器名> [服务端口=80] [本地端口=自动分配] [目标IP=该机本机]   （tailpet tunnel list 查看活动隧道）'
-        Write-Output '  把该机器可访问的 web 端口转发到 A 本机并打开浏览器；agent 机经 hub 中继（B 出站拨中继，零入站）'
+        Write-Output '  把该机器可访问的 web 端口转发到 A 本机（地址见输出）；agent 机经 hub 中继'
         return
     }
     $cands = Resolve-SshTarget $token
@@ -293,7 +293,7 @@ function Do-Tunnel([string]$token, [string]$rport = '80', [string]$lport = '', [
                 $url = "${scheme}://127.0.0.1:$($dup.port)"
                 Write-Output "同目标隧道已存在，直接复用: $url  ->  $token ($target)"
                 Write-Output "  停止: tailpet tunnel-stop $($dup.port)"
-                if (-not $NoBrowse) { Start-Process $url }
+                if ($NoBrowse) { }  # 不再自动开浏览器：地址已打印，需要时自行打开
                 return
             }
         }
@@ -339,9 +339,9 @@ function Do-Tunnel([string]$token, [string]$rport = '80', [string]$lport = '', [
     $scheme = if ($rport -eq '443') { 'https' } else { 'http' }
     $url = "${scheme}://127.0.0.1:$lport"
     Write-Output "隧道已建立: $url  ->  $token ($target, $viaDesc)"
-    Write-Output "  浏览器已打开（kimi-webbridge 可直接操作 127.0.0.1）"
+    Write-Output "  需要时在浏览器打开上述地址（kimi-webbridge 可直接操作 127.0.0.1）"
     Write-Output "  停止: tailpet tunnel-stop $lport"
-    if (-not $NoBrowse) { Start-Process $url }
+    if ($NoBrowse) { }  # 不再自动开浏览器：地址已打印，需要时自行打开
 }
 
 # ============ agent 机器（hub 长轮询）============
@@ -1159,7 +1159,7 @@ function Build-PromptText($item, $jumpInfo) {
         $lines += '- **SSH 用户**: ' + $item.User
         $lines += '- **进入交互终端**: `tailpet ssh ' + $item.Name + '`（自动经 B 两跳）'
         $lines += '- **远程执行命令**: `tailpet ssh ' + $item.Name + ' "命令"`'
-        $lines += '- **Web 服务访问**: `tailpet tunnel ' + $item.Name + '` —— 自动分配隧道端口并在 A 本机浏览器打开 `127.0.0.1:<隧道端口>`，默认转发该 C 的 80 端口（web 服务在其它端口时：`tailpet tunnel ' + $item.Name + ' <远端端口>`，连接自动经 B 转发，无需在 C 安装任何东西）；操作页面使用 kimi-webbridge 技能；停止 `tailpet tunnel-stop <隧道端口>`'
+        $lines += '- **Web 服务访问**: `tailpet tunnel ' + $item.Name + '` —— 隧道地址 `127.0.0.1:<隧道端口>`（输出中给出，需要时在浏览器打开），默认转发该 C 的 80 端口（web 服务在其它端口时：`tailpet tunnel ' + $item.Name + ' <远端端口>`，连接自动经 B 转发，无需在 C 安装任何东西）；操作页面使用 kimi-webbridge 技能；停止 `tailpet tunnel-stop <隧道端口>`'
         $lines += ''
         $lines += '### 手动两步（tailpet 不可用时）'
         if ($bip) {
@@ -1184,7 +1184,7 @@ function Build-PromptText($item, $jumpInfo) {
         $lines += '- **SSH 用户**: ' + $item.User
         $lines += '- **进入交互终端**: `tailpet ssh ' + $item.Name + '`'
         $lines += '- **远程执行命令**: `tailpet ssh ' + $item.Name + ' "命令"`'
-        $lines += '- **Web 服务访问**: `tailpet tunnel ' + $item.Name + '` —— 自动分配隧道端口并在 A 本机浏览器打开 `127.0.0.1:<隧道端口>`，默认转发该机 80 端口的网页（web 服务在其它端口时：`tailpet tunnel ' + $item.Name + ' <远端端口>`）；操作页面使用 kimi-webbridge 技能；停止 `tailpet tunnel-stop <隧道端口>`'
+        $lines += '- **Web 服务访问**: `tailpet tunnel ' + $item.Name + '` —— 隧道地址 `127.0.0.1:<隧道端口>`（输出中给出，需要时在浏览器打开），默认转发该机 80 端口（web 服务在其它端口时：`tailpet tunnel ' + $item.Name + ' <远端端口>`）；操作页面使用 kimi-webbridge 技能；停止 `tailpet tunnel-stop <隧道端口>`'
     }
     elseif ($item.Type -eq 'pub') {
         $lines += '## ' + $item.Name
@@ -1192,7 +1192,7 @@ function Build-PromptText($item, $jumpInfo) {
         $lines += '- **SSH 用户**: ' + $item.User
         $lines += '- **进入交互终端**: `tailpet ssh ' + $item.Name + '`'
         $lines += '- **远程执行命令**: `tailpet ssh ' + $item.Name + ' "命令"`'
-        $lines += '- **Web 服务访问**: `tailpet tunnel ' + $item.Name + '` —— 自动分配隧道端口并在 A 本机浏览器打开 `127.0.0.1:<隧道端口>`，默认转发该机 80 端口的网页（web 服务在其它端口时：`tailpet tunnel ' + $item.Name + ' <远端端口>`）；操作页面使用 kimi-webbridge 技能；停止 `tailpet tunnel-stop <隧道端口>`'
+        $lines += '- **Web 服务访问**: `tailpet tunnel ' + $item.Name + '` —— 隧道地址 `127.0.0.1:<隧道端口>`（输出中给出，需要时在浏览器打开），默认转发该机 80 端口（web 服务在其它端口时：`tailpet tunnel ' + $item.Name + ' <远端端口>`）；操作页面使用 kimi-webbridge 技能；停止 `tailpet tunnel-stop <隧道端口>`'
     }
     elseif ($item.Type -eq 'agent') {
         $lines += $item.Name + '（agent 模式）'
@@ -1208,7 +1208,7 @@ function Build-PromptText($item, $jumpInfo) {
         $lines += '- **Web 服务访问**: `tailpet tunnel ' + $item.Name + ' <服务端口>` 其中：'
         $lines += '  - <服务端口>指目标机上的端口（web/RDP 等任意 TCP）；'
         $lines += '  - 本地端口缺省自动分配系统空闲端口（也可显式指定），分配结果见命令输出或 `tailpet tunnel-list`；'
-        $lines += '  - 建好后自动打开浏览器，同目标重复执行自动复用；'
+        $lines += '  - 建好后地址在输出中给出（不自动开浏览器），同目标重复执行自动复用；'
         $lines += '  - 默认转该机 127.0.0.1，服务只绑该机内网 IP 时：`tailpet tunnel ' + $item.Name + ' <服务端口> <本地端口> <目标IP>`；'
         $lines += '  - 查看用 `tailpet tunnel list`；停止用 `tailpet tunnel-stop [本地端口]`（无参数=全部）。'
         $lines += ''
@@ -1360,7 +1360,7 @@ function Show-Help {
             @('tailpet ssh', '交互式选择机器进入'),
             @('tailpet ssh <名> [命令...]', '远程执行（agent 机自动经 hub 下发；其余走 ssh）'),
             @('tailpet nodes', '机器总表（agent 含在线状态）'),
-            @('tailpet tunnel <名> [远端端口] [本地端口]', '端口隧道：远端网页在 A 本机浏览器打开'),
+            @('tailpet tunnel <名> [远端端口] [本地端口]', '端口隧道：远端端口转发到本机（地址见输出）'),
             @('tailpet tunnel list', '查看活动隧道（失联记录自动清理）'),
             @('tailpet web [-p 端口] [-d]', '本机管理页面（-d=后台，web-stop 停止）'),
             @('tailpet tunnel-stop [本地端口]', '停止隧道（不带参数=全部）'),
