@@ -378,8 +378,8 @@ footer{margin:8px 22px 22px;color:#94a3b8;font-size:11.5px;text-align:center}
  <h3><span class="m">🖥️</span>机器管理</h3><span class="cnt" id="agCnt"></span><span class="spacer"></span>
  <select id="agStat"><option value="">全部状态</option><option value="1">在线</option><option value="0">离线</option></select>
  <input id="agFilter" placeholder="按名称过滤…" style="width:150px">
- <button class="warn" id="batchRm" style="display:none" onclick="rmAgents()">删除所选</button>
  <button class="pri" onclick="addAgent()">＋ 新增机器</button>
+ <button class="warn" id="batchRm" style="display:none" onclick="rmAgents()">删除所选</button>
 </div>
 <div style="overflow-x:auto">
 <table id="agents"><thead><tr><th style="width:30px"><input type="checkbox" id="ckAllA" onchange="toggleAllA(this.checked)"></th><th>名称（点击改名）</th><th>状态</th><th>版本</th><th>最后心跳</th><th>出口 IP</th><th>操作</th></tr></thead><tbody></tbody></table>
