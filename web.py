@@ -444,6 +444,8 @@ font-size:11.5px;color:var(--sub);font-weight:600}
 .cp{border:none;background:none;padding:2px 4px;font-size:12px;color:#94a3b8;cursor:pointer;vertical-align:middle}
 .cp:hover{color:var(--pri);background:var(--pri-soft);border-radius:5px}
 .cp.ok{color:var(--ok);background:var(--ok-bg);border-radius:5px}
+button:disabled{opacity:.4;cursor:not-allowed;transform:none}
+button:disabled:hover{border-color:var(--line);background:#fff}
 .docwrap{position:relative}
 .docCopy{position:absolute;top:10px;right:10px;z-index:2;border:none;background:rgba(255,255,255,.07);
 color:#94a3b8;padding:4px 8px;border-radius:7px;cursor:pointer;font-size:14px;transition:all .13s}
@@ -674,14 +676,14 @@ function renderAgents(){const list=agFiltered();
  document.getElementById('agCnt').textContent=`${list.length}/${AG.length} 台`;
  const tb=document.querySelector('#agents tbody');tb.innerHTML=list.length?'':'<tr><td colspan="8" class="hint">（无匹配机器）</td></tr>';
  for(const a of list){const tr=document.createElement('tr');
-  const isAg=(a.type||'agent')==='agent'&&!a.pending;
+  const dis=a.pending?' disabled title="部署后可用"':'';
   const typeBadge=a.type==='lan'?'<span class="tpb lan">lan</span>':a.type==='pub'?'<span class="tpb pub">pub</span>':'<span class="tpb ag">agent</span>';
-  const ops=isAg?`
-   <button onclick="openCmd('${esc(a.name)}','${a.id}')">执行命令</button>
-   <button onclick="openFile('${esc(a.name)}')">传输文件</button>
-   <button onclick="openTunModal('${esc(a.name)}')">新建隧道</button>
+  const ops=`
+   <button${dis} onclick="openCmd('${esc(a.name)}','${a.id}')">执行命令</button>
+   <button${dis} onclick="openFile('${esc(a.name)}')">传输文件</button>
+   <button${dis} onclick="openTunModal('${esc(a.name)}')">新建隧道</button>
    <button onclick="genPkgFor('${esc(a.name)}')">生成安装包</button>
-   <button onclick="genDoc('${esc(a.name)}')">生成说明书</button>`:'';
+   <button${dis} onclick="genDoc('${esc(a.name)}')">生成说明书</button>`;
   tr.innerHTML=`<td><input type="checkbox" ${SELA.has(a.name)?'checked':''} onchange="selA('${esc(a.name)}',this.checked)"></td>
   <td><span class="nmrow"><span class="nm" onclick="editNm(this,'${esc(a.name)}','${a.id}')" title="点击改名">${escHtml(a.name)}</span><button class="cp" title="复制名称" onclick="copyName('${esc(a.name)}',this)">⧉</button></span></td>
   <td>${typeBadge}</td>
