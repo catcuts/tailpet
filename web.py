@@ -647,7 +647,10 @@ async function refresh(){
   if(document.activeElement.id!=='dlDir')document.getElementById('dlDir').value=s.config.download_dir;
   const an=new Set(AG.map(a=>a.name));SELA=new Set([...SELA].filter(x=>an.has(x)));
   const tn=new Set(TUN.map(t=>String(t.port)));SELT=new Set([...SELT].filter(x=>tn.has(x)));
-  renderAgents();renderTunnels();fillAgentSel();updateSelUI();
+  try{renderAgents()}catch(e){console.error(e)}
+  try{renderTunnels()}catch(e){console.error(e)}
+  try{fillAgentSel()}catch(e){}
+  try{updateSelUI()}catch(e){}
  }catch(e){document.getElementById('hubstat').innerHTML='<b style="color:var(--bad)">● 控制台服务异常</b>'}
 }
 function agFiltered(){const q=(document.getElementById('agFilter').value||'').toLowerCase(),st=document.getElementById('agStat').value;
@@ -679,10 +682,11 @@ function renderTunnels(){const list=tFiltered();
  for(const t of list){const tr=document.createElement('tr');
   const seg=t.target.split(' -> ');const hasRelay=seg.length>1;
   const machine=hasRelay?seg[0]:'',tgt=hasRelay?seg[1]:t.target;
+  const tport=String(tgt).split(':').pop();
   tr.innerHTML=`<td><input type="checkbox" ${SELT.has(String(t.port))?'checked':''} onchange="selT('${t.port}',this.checked)"></td>
   <td><b><a href="http://127.0.0.1:${t.port}" target="_blank" style="color:var(--pri);text-decoration:none">${t.port} ↗</a></b></td><td>${machine?escHtml(machine):'<span class="hint">—</span>'}</td><td>${t.via?escHtml(t.via):'<span class="hint">—</span>'}</td><td>${escHtml(tgt)}</td>
   <td><span class="badge ${t.alive?'on':'off'}"><span class="d"></span>${t.alive?'运行中':'已失联'}</span></td>
-  <td class="kv">${t.started}</td>  const tport=String(tgt).split(':').pop();
+  <td class="kv">${t.started}</td>
   <td style="white-space:nowrap">${(!t.alive&&t.target.includes(' -> '))?`<button onclick="rebuildTunnel(${t.port})">重建</button> `:''}${(tport==='22'&&t.alive)?`<button onclick="openTunCmd(${t.port},'${escHtml(tgt)}')">执行命令</button> `:''}<button class="warn" onclick="stopTunnel(${t.port})">停止</button></td>`;tb.appendChild(tr)}}
 function fillAgentSel(keep){const sel=document.getElementById('tAgent');const k=keep||sel.value;sel.innerHTML='';
  for(const a of AG){const o=document.createElement('option');o.value=a.name;o.textContent=a.name;sel.appendChild(o)}
