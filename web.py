@@ -25,6 +25,42 @@ CFG_PATH = os.path.join(PKG, 'web.json')
 TUNNELS_PATH = os.path.join(PKG, '.tunnels.json')
 REG_PATH = os.path.join(PKG, '.machines.json')
 
+def _plink():
+    c = os.path.join(PKG, 'bootstrap', 'cache', 'plink.exe')
+    return c if os.path.exists(c) else 'plink.exe'
+
+def exec_tunnel(lport, user, pw, cmd, timeout=120):
+    import shutil, subprocess
+    NO_WIN = 0x08000000
+    ks_exe = shutil.which('ssh-keyscan')
+    if not ks_exe:
+        return {'exit': None, 'stdout': '', 'stderr': '本机缺 ssh-keyscan（Windows OpenSSH 客户端）'}
+    try:
+        ks = subprocess.run([ks_exe, '-p', str(lport), '-t', 'ed25519', '127.0.0.1'],
+                            capture_output=True, timeout=25, creationflags=NO_WIN).stdout.decode('utf-8', 'replace')
+    except Exception as e:
+        return {'exit': None, 'stdout': '', 'stderr': 'keyscan 失败: %s' % e}
+    line = next((l for l in ks.splitlines() if l.strip() and not l.startswith('#')), '')
+    if not line:
+        return {'exit': None, 'stdout': '', 'stderr': '隧道端口无 SSH 响应（非 SSH 端口或隧道已断）'}
+    b64 = line.split()[2]
+    try:
+        r = subprocess.run([_plink(), '-ssh', '-batch', '-hostkey', b64, '-P', str(lport),
+                            '-pw', pw, '-l', user, '127.0.0.1', cmd],
+                           capture_output=True, timeout=timeout, creationflags=NO_WIN)
+    except subprocess.TimeoutExpired:
+        return {'exit': None, 'stdout': '', 'stderr': '执行超时(%ss)' % timeout}
+    except FileNotFoundError:
+        return {'exit': None, 'stdout': '', 'stderr': '缺 plink.exe（bootstrap/cache）'}
+    def dec(b):
+        for encd in ('gbk', 'utf-8'):
+            try:
+                return b.decode(encd)
+            except Exception:
+                continue
+        return b.decode('utf-8', 'replace')
+    return {'exit': r.returncode, 'stdout': dec(r.stdout), 'stderr': dec(r.stderr)}
+
 def reg_load():
     try:
         return json.load(open(REG_PATH, encoding='utf-8-sig'))
@@ -505,6 +541,20 @@ footer{margin:8px 22px 22px;color:#94a3b8;font-size:11.5px;text-align:center}
  </div>
 </div></div>
 
+<div class="modal" id="tcModal" onclick="if(event.target===this)closeModals()"><div class="mbox" style="max-width:680px">
+ <div class="mhead"><span class="m">⌨️</span>执行命令（目标机）· 隧道 <span id="tcPort" style="color:var(--pri)"></span> → <span id="tcTarget" class="kv"></span>
+  <button class="x" onclick="closeModals()">✕</button></div>
+ <div class="mbody">
+  <div class="row">目标用户 <input id="tcUser" value="administrator" style="width:130px">
+   密码 <input id="tcPw" type="password" style="width:130px" placeholder="目标机密码">
+   超时 <input id="tcTmo" value="120" style="width:52px"> s</div>
+  <div class="row"><input id="tcCmd" placeholder="输入命令，回车执行…" style="flex:1" onkeydown="if(event.key==='Enter')runTunCmd()">
+   <button class="pri" onclick="runTunCmd()">执行</button></div>
+  <div class="hint" style="margin:2px 0 10px">经隧道 SSH 到目标机执行（密码仅本次使用不存储）；历史保留最近 30 条</div>
+  <div class="hlist" id="tcHist"></div>
+ </div>
+</div></div>
+
 <div class="modal" id="askModal"><div class="mbox">
  <div class="mhead" id="askTitle">确认</div>
  <div class="mbody">
@@ -551,6 +601,30 @@ async function stopSelTunnels(){const ps=[...SELT];if(!ps.length)return;
  if(!await ask({title:`停止 ${ps.length} 条隧道`,danger:true,msg:`确认停止所选 ${ps.length} 条隧道？\n\n端口：${ps.join('、')}`}))return;
  for(const p of ps){await api('/api/tunnel-stop',{lport:p})}
  SELT.clear();toast(`已停止 ${ps.length} 条`);refresh()}
+let TC={port:0};
+function tunHistKey(){return 'tptun_'+TC.port}
+function tunLoadHist(){try{return JSON.parse(localStorage.getItem(tunHistKey())||'[]')}catch(e){return[]}}
+function tunSaveHist(h){localStorage.setItem(tunHistKey(),JSON.stringify(h.slice(0,30)))}
+function tunRenderHist(){const el=document.getElementById('tcHist');const h=tunLoadHist();
+ el.innerHTML=h.length?'':'<div class="hint">（暂无历史，输入命令开始）</div>';
+ for(const x of h){const d=document.createElement('div');d.className='hitem';
+  d.innerHTML=`<div class="hcmd">$ ${escHtml(x.cmd)}</div><div class="hmeta">${x.t} · exit ${x.exit}</div>
+  <pre>${escHtml(x.out||'(无输出)')}</pre>`;el.prepend(d)}}
+function openTunCmd(port,target){TC={port};
+ document.getElementById('tcPort').textContent=port;document.getElementById('tcTarget').textContent=target;
+ document.getElementById('tcModal').classList.add('show');tunRenderHist();
+ setTimeout(()=>document.getElementById('tcCmd').focus(),50)}
+async function runTunCmd(){const c=document.getElementById('tcCmd').value.trim();
+ const u=document.getElementById('tcUser').value.trim()||'administrator',pw=document.getElementById('tcPw').value,t=+document.getElementById('tcTmo').value||120;
+ if(!c)return;if(!pw)return toast('请填目标机密码');
+ if(!await ask({title:'执行命令（目标机）',msg:`确认在隧道 ${TC.port} 的目标机执行？\n\n${c}\n\n用户 ${u} · 超时 ${t} 秒`}))return;
+ document.getElementById('tcCmd').value='';
+ const h=tunLoadHist();h.push({t:new Date().toLocaleString(),cmd:c,exit:'…',out:'执行中…'});tunSaveHist(h);tunRenderHist();
+ const r=await api('/api/exec-tunnel',{lport:TC.port,user:u,password:pw,cmd:c,timeout:t});
+ const h2=tunLoadHist();h2[h2.length-1]={t:new Date().toLocaleString(),cmd:c,exit:r.exit,
+  out:(r.stdout||'')+(r.stderr?'
+[stderr] '+r.stderr:'')};tunSaveHist(h2);tunRenderHist()}
+
 let DOC_TEXT='';
 function genDoc(name){document.getElementById('docName').textContent=name;
  const cur=document.getElementById('docCopyBtn');cur.textContent='⧉';cur.classList.remove('ok');
@@ -608,7 +682,8 @@ function renderTunnels(){const list=tFiltered();
   tr.innerHTML=`<td><input type="checkbox" ${SELT.has(String(t.port))?'checked':''} onchange="selT('${t.port}',this.checked)"></td>
   <td><b><a href="http://127.0.0.1:${t.port}" target="_blank" style="color:var(--pri);text-decoration:none">${t.port} ↗</a></b></td><td>${machine?escHtml(machine):'<span class="hint">—</span>'}</td><td>${t.via?escHtml(t.via):'<span class="hint">—</span>'}</td><td>${escHtml(tgt)}</td>
   <td><span class="badge ${t.alive?'on':'off'}"><span class="d"></span>${t.alive?'运行中':'已失联'}</span></td>
-  <td class="kv">${t.started}</td><td style="white-space:nowrap">${(!t.alive&&t.target.includes(' -> '))?`<button onclick="rebuildTunnel(${t.port})">重建</button> `:''}<button class="warn" onclick="stopTunnel(${t.port})">停止</button></td>`;tb.appendChild(tr)}}
+  <td class="kv">${t.started}</td>  const tport=String(tgt).split(':').pop();
+  <td style="white-space:nowrap">${(!t.alive&&t.target.includes(' -> '))?`<button onclick="rebuildTunnel(${t.port})">重建</button> `:''}${(tport==='22'&&t.alive)?`<button onclick="openTunCmd(${t.port},'${escHtml(tgt)}')">执行命令</button> `:''}<button class="warn" onclick="stopTunnel(${t.port})">停止</button></td>`;tb.appendChild(tr)}}
 function fillAgentSel(keep){const sel=document.getElementById('tAgent');const k=keep||sel.value;sel.innerHTML='';
  for(const a of AG){const o=document.createElement('option');o.value=a.name;o.textContent=a.name;sel.appendChild(o)}
  if(k)sel.value=k}
@@ -769,6 +844,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         try:
+            if self.path == '/api/exec-tunnel':
+                b = json.loads(self._body().decode('utf-8'))
+                r = exec_tunnel(b.get('lport'), b.get('user') or 'administrator',
+                                b.get('password') or '', b.get('cmd') or '',
+                                int(b.get('timeout') or 120))
+                r['ok'] = r.get('exit') is not None
+                return self._json(r)
             if self.path == '/api/exec':
                 b = json.loads(self._body().decode('utf-8'))
                 a = agent_by_name(b.get('name', ''))
