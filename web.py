@@ -622,8 +622,7 @@ async function runTunCmd(){const c=document.getElementById('tcCmd').value.trim()
  const h=tunLoadHist();h.push({t:new Date().toLocaleString(),cmd:c,exit:'…',out:'执行中…'});tunSaveHist(h);tunRenderHist();
  const r=await api('/api/exec-tunnel',{lport:TC.port,user:u,password:pw,cmd:c,timeout:t});
  const h2=tunLoadHist();h2[h2.length-1]={t:new Date().toLocaleString(),cmd:c,exit:r.exit,
-  out:(r.stdout||'')+(r.stderr?'
-[stderr] '+r.stderr:'')};tunSaveHist(h2);tunRenderHist()}
+  out:(r.stdout||'')+(r.stderr?(String.fromCharCode(10)+'[stderr] '+r.stderr):'')};tunSaveHist(h2);tunRenderHist()}
 
 let DOC_TEXT='';
 function genDoc(name){document.getElementById('docName').textContent=name;
