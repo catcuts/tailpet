@@ -23,6 +23,16 @@ PARAMS = json.load(open(os.path.join(PKG, 'params.json'), encoding='utf-8-sig'))
 HUB = 'http://%s:8443' % PARAMS['server']['host']
 CFG_PATH = os.path.join(PKG, 'web.json')
 TUNNELS_PATH = os.path.join(PKG, '.tunnels.json')
+REG_PATH = os.path.join(PKG, '.machines.json')
+
+def reg_load():
+    try:
+        return json.load(open(REG_PATH, encoding='utf-8-sig'))
+    except Exception:
+        return []
+
+def reg_save(m):
+    json.dump(m, open(REG_PATH, 'w', encoding='utf-8'), ensure_ascii=False)
 
 def admin_token():
     return open(os.path.join(PKG, 'hub-admin.txt'), encoding='utf-8-sig').read().strip()
@@ -295,10 +305,16 @@ def make_state():
         for aid, m in metas.items():
             ls = m.get('lastSeen') or 0
             agents.append({'id': aid, 'name': m.get('name') or aid,
+                           'type': 'agent',
                            'online': now - ls < 90, 'ver': m.get('ver') or '-',
                            'seen': time.strftime('%m-%d %H:%M', time.localtime(ls)) if ls else '-',
                            'ip': m.get('ip') or ''})
-    agents.sort(key=lambda x: (0 if x['online'] else 1, x['name']))
+    for m in reg_load():
+        agents.append({'id': 'reg:' + m.get('name', ''), 'name': m.get('name', ''),
+                       'type': m.get('type', 'pub'), 'online': None, 'ver': '-',
+                       'seen': '-', 'ip': m.get('ip', ''),
+                       'jump': m.get('jump') or ''})
+    agents.sort(key=lambda x: (2 if x['online'] is None else (0 if x['online'] else 1), x.get('type', ''), x['name']))
     tunnels = []
     for x in tunnels_load():
         alive = proc_alive(x.get('pid', 0))
@@ -379,6 +395,10 @@ color:#94a3b8;padding:4px 8px;border-radius:7px;cursor:pointer;font-size:14px;tr
 .docCopy.ok{color:#34d399;background:rgba(52,211,153,.13)}
 #docModal pre{max-height:calc(88vh - 120px)}
 input[type=checkbox]{accent-color:var(--pri);width:15px;height:15px;cursor:pointer}
+.tpb{display:inline-block;font-size:11px;font-weight:600;border-radius:5px;padding:1px 7px}
+.tpb.ag{background:var(--pri-soft);color:var(--pri)}
+.tpb.pub{background:#f1f5f9;color:#475569}
+.tpb.lan{background:#fffbeb;color:#b45309}
 button.danger{background:var(--bad);border-color:var(--bad);color:#fff;box-shadow:0 1px 2px rgba(225,29,72,.25)}
 button.danger:hover{background:#be123c}
 #askModal .mbox{max-width:420px}
@@ -427,7 +447,7 @@ footer{margin:8px 22px 22px;color:#94a3b8;font-size:11.5px;text-align:center}
  <button class="warn" id="batchRm" style="display:none" onclick="rmAgents()">删除所选</button>
 </div>
 <div style="overflow-x:auto">
-<table id="agents"><thead><tr><th style="width:30px"><input type="checkbox" id="ckAllA" onchange="toggleAllA(this.checked)"></th><th>名称（点击改名）</th><th>状态</th><th>版本</th><th>最后心跳</th><th>出口 IP</th><th>操作</th></tr></thead><tbody></tbody></table>
+<table id="agents"><thead><tr><th style="width:30px"><input type="checkbox" id="ckAllA" onchange="toggleAllA(this.checked)"></th><th>名称（点击改名）</th><th>类型</th><th>状态</th><th>版本</th><th>最后心跳</th><th>出口 IP</th><th>操作</th></tr></thead><tbody></tbody></table>
 </div></div>
 
 <div class="card"><div class="bar">
@@ -542,7 +562,7 @@ function copyName(n,btn){const ok=()=>{if(!btn)return;btn.textContent='✓';btn.
 async function refresh(){
  try{const s=await api('/api/state');AG=s.agents;TUN=s.tunnels;CFG=s.config;
   document.getElementById('hubstat').innerHTML=s.hub_ok?'<b style="color:var(--ok)">● hub 在线</b>':'<b style="color:var(--bad)">● hub 不可达</b>';
-  document.getElementById('cnt').textContent=`站点 ${s.agents.length} · 在线 ${s.agents.filter(a=>a.online).length}`;
+  document.getElementById('cnt').textContent=`机器 ${s.agents.length} · 在线 ${s.agents.filter(a=>a.online).length}`;
   if(document.activeElement.id!=='rf')document.getElementById('rf').value=s.config.refresh;
   if(document.activeElement.id!=='dlDir')document.getElementById('dlDir').value=s.config.download_dir;
   const an=new Set(AG.map(a=>a.name));SELA=new Set([...SELA].filter(x=>an.has(x)));
@@ -551,20 +571,25 @@ async function refresh(){
  }catch(e){document.getElementById('hubstat').innerHTML='<b style="color:var(--bad)">● 控制台服务异常</b>'}
 }
 function agFiltered(){const q=(document.getElementById('agFilter').value||'').toLowerCase(),st=document.getElementById('agStat').value;
- return AG.filter(a=>(!q||a.name.toLowerCase().includes(q))&&(st===''||String(+a.online)===st))}
+ return AG.filter(a=>(!q||a.name.toLowerCase().includes(q))&&(st===''||(st==='1'&&a.online===true)||(st==='0'&&a.online===false)))}
 function renderAgents(){const list=agFiltered();
  document.getElementById('agCnt').textContent=`${list.length}/${AG.length} 台`;
- const tb=document.querySelector('#agents tbody');tb.innerHTML=list.length?'':'<tr><td colspan="6" class="hint">（无匹配机器）</td></tr>';
+ const tb=document.querySelector('#agents tbody');tb.innerHTML=list.length?'':'<tr><td colspan="8" class="hint">（无匹配机器）</td></tr>';
  for(const a of list){const tr=document.createElement('tr');
-  tr.innerHTML=`<td><input type="checkbox" ${SELA.has(a.name)?'checked':''} onchange="selA('${esc(a.name)}',this.checked)"></td>
-  <td><span class="nmrow"><span class="nm" onclick="editNm(this,'${esc(a.name)}','${a.id}')" title="点击改名">${escHtml(a.name)}</span><button class="cp" title="复制名称" onclick="copyName('${esc(a.name)}',this)">⧉</button></span></td>
-  <td><span class="badge ${a.online?'on':'off'}"><span class="d"></span>${a.online?'在线':'离线'}</span></td>
-  <td><span class="ver ${a.ver!=='-'?'v2':''}">${a.ver}</span></td><td class="kv">${a.seen}</td><td class="kv">${a.ip}</td>
-  <td style="white-space:nowrap"><button onclick="openCmd('${esc(a.name)}','${a.id}')">执行命令</button>
+  const isAg=(a.type||'agent')==='agent';
+  const typeBadge=a.type==='lan'?'<span class="tpb lan">lan</span>':a.type==='pub'?'<span class="tpb pub">pub</span>':'<span class="tpb ag">agent</span>';
+  const ops=isAg?`
+   <button onclick="openCmd('${esc(a.name)}','${a.id}')">执行命令</button>
    <button onclick="openFile('${esc(a.name)}')">传输文件</button>
    <button onclick="openTunModal('${esc(a.name)}')">新建隧道</button>
    <button onclick="genPkgFor('${esc(a.name)}')">生成安装包</button>
-   <button onclick="genDoc('${esc(a.name)}')">生成说明书</button>
+   <button onclick="genDoc('${esc(a.name)}')">生成说明书</button>`:'';
+  tr.innerHTML=`<td><input type="checkbox" ${SELA.has(a.name)?'checked':''} onchange="selA('${esc(a.name)}',this.checked)"></td>
+  <td><span class="nmrow"><span class="nm" onclick="editNm(this,'${esc(a.name)}','${a.id}')" title="点击改名">${escHtml(a.name)}</span><button class="cp" title="复制名称" onclick="copyName('${esc(a.name)}',this)">⧉</button></span></td>
+  <td>${typeBadge}</td>
+  <td>${a.online===null?'<span class="hint">—</span>':`<span class="badge ${a.online?'on':'off'}"><span class="d"></span>${a.online?'在线':'离线'}</span>`}</td>
+  <td><span class="ver ${a.ver!=='-'?'v2':''}">${a.ver}</span></td><td class="kv">${a.seen}</td><td class="kv">${a.ip}${a.jump?' <span class="hint">(经 '+escHtml(a.jump)+')</span>':''}</td>
+  <td style="white-space:nowrap">${ops}
    <button class="warn" onclick="rmAgent('${esc(a.name)}')">删除</button></td>`;tb.appendChild(tr)}}
 function tFiltered(){const q=(document.getElementById('tFilter').value||'').toLowerCase();
  return TUN.filter(t=>!q||String(t.port).includes(q)||t.target.toLowerCase().includes(q))}
@@ -764,19 +789,33 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({'ok': True, 'text': gen_prompt(a['meta'].get('name') or b.get('name'))})
             if self.path == '/api/agent-rm':
                 b = json.loads(self._body().decode('utf-8'))
-                a = agent_by_name(b.get('name', ''))
+                name = b.get('name', '')
+                regs = reg_load()
+                if any(m.get('name') == name for m in regs):
+                    reg_save([m for m in regs if m.get('name') != name])
+                    return self._json({'ok': True, 'kind': 'registry'})
+                a = agent_by_name(name)
                 if not a:
-                    return self._json({'ok': False, 'err': 'agent 不存在'})
+                    return self._json({'ok': False, 'err': '机器不存在'})
                 hub_post('/purge?admin=%s&id=%s' % (admin_token(), a['id']))
-                return self._json({'ok': True})
+                return self._json({'ok': True, 'kind': 'agent'})
             if self.path == '/api/agent-rename':
                 b = json.loads(self._body().decode('utf-8'))
-                a = agent_by_name(b.get('name', ''))
                 new = (b.get('new') or '').strip()
-                if not a:
-                    return self._json({'ok': False, 'err': 'agent 不存在'})
-                if not new or len(new) > 40 or any(c in new for c in ' \\/:*?"<>|'):
+                if not new or len(new) > 40 or any(c in new for c in ' \/:*?"<>|'):
                     return self._json({'ok': False, 'err': '名称非法（空/含空白或 \/:*?"<>|）'})
+                regs = reg_load()
+                if any(m.get('name') == b.get('name', '') for m in regs):
+                    if any(m.get('name') == new for m in regs) and new != b.get('name'):
+                        return self._json({'ok': False, 'err': '注册表已有同名机器'})
+                    for m in regs:
+                        if m.get('name') == b.get('name'):
+                            m['name'] = new
+                    reg_save(regs)
+                    return self._json({'ok': True, 'new': new})
+                a = agent_by_name(b.get('name', ''))
+                if not a:
+                    return self._json({'ok': False, 'err': '机器不存在'})
                 hub_post('/rename?admin=%s&id=%s' % (admin_token(), a['id']),
                          json.dumps({'name': new}, ensure_ascii=False).encode('utf-8'))
                 return self._json({'ok': True, 'new': new})
