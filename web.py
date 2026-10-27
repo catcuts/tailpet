@@ -487,7 +487,7 @@ footer{margin:8px 22px 22px;color:#94a3b8;font-size:11.5px;text-align:center}
 
 <div class="modal" id="docModal" onclick="if(event.target===this)closeModals()"><div class="mbox" style="max-width:720px">
  <div class="mhead"><span class="m">📄</span>说明书 · <span id="docName" style="color:var(--pri)"></span>
-  <button class="cp" id="docCopyBtn" title="复制全部" style="font-size:14px;margin-left:auto" onclick="copyDoc(this)">⧉</button>
+  <button class="cp" id="docCopyBtn" title="复制全部" style="font-size:15px" onclick="copyDoc(this)">⧉</button>
   <button class="x" onclick="closeModals()">✕</button></div>
  <div class="mbody"><pre id="docText" style="max-height:62vh"></pre></div>
 </div></div>
@@ -520,7 +520,7 @@ async function stopSelTunnels(){const ps=[...SELT];if(!ps.length)return;
  SELT.clear();toast(`已停止 ${ps.length} 条`);refresh()}
 let DOC_TEXT='';
 function genDoc(name){document.getElementById('docName').textContent=name;
- const cur=document.getElementById('docCopyBtn');cur.textContent='⏉';cur.classList.remove('ok');
+ const cur=document.getElementById('docCopyBtn');cur.textContent='⧉';cur.classList.remove('ok');
  document.getElementById('docText').textContent='生成中…';
  document.getElementById('docModal').classList.add('show');
  api('/api/gen-prompt',{name}).then(r=>{DOC_TEXT=r.ok?r.text:('失败: '+r.err);
