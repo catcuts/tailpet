@@ -332,6 +332,7 @@ font-size:11.5px;color:var(--sub);font-weight:600}
 .nmrow{display:inline-flex;align-items:center;gap:4px}
 .cp{border:none;background:none;padding:2px 4px;font-size:12px;color:#94a3b8;cursor:pointer;vertical-align:middle}
 .cp:hover{color:var(--pri);background:var(--pri-soft);border-radius:5px}
+.cp.ok{color:var(--ok);background:var(--ok-bg);border-radius:5px}
 input[type=checkbox]{accent-color:var(--pri);width:15px;height:15px;cursor:pointer}
 button.danger{background:var(--bad);border-color:var(--bad);color:#fff;box-shadow:0 1px 2px rgba(225,29,72,.25)}
 button.danger:hover{background:#be123c}
@@ -470,9 +471,11 @@ async function stopSelTunnels(){const ps=[...SELT];if(!ps.length)return;
  if(!await ask({title:`停止 ${ps.length} 条隧道`,danger:true,msg:`确认停止所选 ${ps.length} 条隧道？\n\n端口：${ps.join('、')}`}))return;
  for(const p of ps){await api('/api/tunnel-stop',{lport:p})}
  SELT.clear();toast(`已停止 ${ps.length} 条`);refresh()}
-function copyName(n){(navigator.clipboard?navigator.clipboard.writeText(n):Promise.reject()).then(
- ()=>toast('已复制: '+n)).catch(()=>{const ta=document.createElement('textarea');ta.value=n;document.body.appendChild(ta);
- ta.select();document.execCommand('copy');ta.remove();toast('已复制: '+n)})}
+function copyName(n,btn){const ok=()=>{if(!btn)return;btn.textContent='✓';btn.classList.add('ok');
+ clearTimeout(btn._t);btn._t=setTimeout(()=>{btn.textContent='⧉';btn.classList.remove('ok')},2000)};
+ (navigator.clipboard?navigator.clipboard.writeText(n):Promise.reject()).then(ok)
+ .catch(()=>{const ta=document.createElement('textarea');ta.value=n;document.body.appendChild(ta);
+ ta.select();try{document.execCommand('copy');ok()}catch(e){toast('复制失败')}ta.remove()})}
 
 async function refresh(){
  try{const s=await api('/api/state');AG=s.agents;TUN=s.tunnels;CFG=s.config;
@@ -492,7 +495,7 @@ function renderAgents(){const list=agFiltered();
  const tb=document.querySelector('#agents tbody');tb.innerHTML=list.length?'':'<tr><td colspan="6" class="hint">（无匹配机器）</td></tr>';
  for(const a of list){const tr=document.createElement('tr');
   tr.innerHTML=`<td><input type="checkbox" ${SELA.has(a.name)?'checked':''} onchange="selA('${esc(a.name)}',this.checked)"></td>
-  <td><span class="nmrow"><span class="nm" onclick="editNm(this,'${esc(a.name)}','${a.id}')" title="点击改名">${escHtml(a.name)}</span><button class="cp" title="复制名称" onclick="copyName('${esc(a.name)}')">⧉</button></span></td>
+  <td><span class="nmrow"><span class="nm" onclick="editNm(this,'${esc(a.name)}','${a.id}')" title="点击改名">${escHtml(a.name)}</span><button class="cp" title="复制名称" onclick="copyName('${esc(a.name)}',this)">⧉</button></span></td>
   <td><span class="badge ${a.online?'on':'off'}"><span class="d"></span>${a.online?'在线':'离线'}</span></td>
   <td><span class="ver ${a.ver!=='-'?'v2':''}">${a.ver}</span></td><td class="kv">${a.seen}</td><td class="kv">${a.ip}</td>
   <td style="white-space:nowrap"><button onclick="openCmd('${esc(a.name)}','${a.id}')">执行命令</button>
