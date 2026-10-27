@@ -264,7 +264,7 @@ def make_state():
     for x in tunnels_load():
         alive = proc_alive(x.get('pid', 0))
         tunnels.append({'port': x['port'], 'target': x['target'], 'started': x.get('started', ''),
-                        'alive': alive})
+                        'via': x.get('via', ''), 'alive': alive})
     cfg = load_cfg()
     return {'hub_ok': hub_ok, 'agents': agents, 'tunnels': tunnels,
             'config': {'refresh': int(cfg.get('refresh', 30)),
@@ -392,7 +392,7 @@ footer{margin:8px 22px 22px;color:#94a3b8;font-size:11.5px;text-align:center}
  <button class="pri" onclick="openTunModal()">＋ 新建隧道</button>
  <button class="warn" onclick="stopAllTunnels()">全部停止</button>
 </div>
-<table id="tunnels"><thead><tr><th style="width:30px"><input type="checkbox" id="ckAllT" onchange="toggleAllT(this.checked)"></th><th>本地端口</th><th>中转</th><th>目标</th><th>状态</th><th>建立时间</th><th>操作</th></tr></thead><tbody></tbody></table>
+<table id="tunnels"><thead><tr><th style="width:30px"><input type="checkbox" id="ckAllT" onchange="toggleAllT(this.checked)"></th><th>本地端口</th><th>机器名称</th><th>中转</th><th>目标</th><th>状态</th><th>建立时间</th><th>操作</th></tr></thead><tbody></tbody></table>
 </div>
 
 <div class="modal" id="fileModal" onclick="if(event.target===this)closeModals()"><div class="mbox" style="max-width:560px">
@@ -425,7 +425,7 @@ footer{margin:8px 22px 22px;color:#94a3b8;font-size:11.5px;text-align:center}
 <div class="modal" id="tunModal" onclick="if(event.target===this)closeModals()"><div class="mbox" style="max-width:430px">
  <div class="mhead"><span class="m">🔗</span>新建隧道<button class="x" onclick="closeModals()">✕</button></div>
  <div class="mbody">
-  <div class="row">机器 <select id="tAgent" style="flex:1"></select></div>
+  <div class="row">远端机器 <select id="tAgent" style="flex:1"></select></div>
   <div class="row">远端端口 <input id="tPort" value="80" style="width:70px">
    本地端口 <input id="tLport" placeholder="自动" style="width:70px"></div>
   <div class="row">目标 IP <input id="tTarget" placeholder="该机本机（127.0.0.1）" style="flex:1"></div>
@@ -507,12 +507,12 @@ function tFiltered(){const q=(document.getElementById('tFilter').value||'').toLo
  return TUN.filter(t=>!q||String(t.port).includes(q)||t.target.toLowerCase().includes(q))}
 function renderTunnels(){const list=tFiltered();
  document.getElementById('tCnt').textContent=`${list.length}/${TUN.length} 条`;
- const tb=document.querySelector('#tunnels tbody');tb.innerHTML=list.length?'':'<tr><td colspan="6" class="hint">（无匹配隧道）</td></tr>';
+ const tb=document.querySelector('#tunnels tbody');tb.innerHTML=list.length?'':'<tr><td colspan="7" class="hint">（无匹配隧道）</td></tr>';
  for(const t of list){const tr=document.createElement('tr');
   const seg=t.target.split(' -> ');const hasRelay=seg.length>1;
-  const relay=hasRelay?seg[0]:'',tgt=hasRelay?seg[1]:t.target;
+  const machine=hasRelay?seg[0]:'',tgt=hasRelay?seg[1]:t.target;
   tr.innerHTML=`<td><input type="checkbox" ${SELT.has(String(t.port))?'checked':''} onchange="selT('${t.port}',this.checked)"></td>
-  <td><b>${t.port}</b></td><td>${hasRelay?escHtml(relay):'<span class="hint">（直连）</span>'}</td><td>${escHtml(tgt)}</td>
+  <td><b>${t.port}</b></td><td>${machine?escHtml(machine):'<span class="hint">—</span>'}</td><td>${t.via?escHtml(t.via):'<span class="hint">—</span>'}</td><td>${escHtml(tgt)}</td>
   <td><span class="badge ${t.alive?'on':'off'}"><span class="d"></span>${t.alive?'运行中':'已失联'}</span></td>
   <td class="kv">${t.started}</td><td><button class="warn" onclick="stopTunnel(${t.port})">停止</button></td>`;tb.appendChild(tr)}}
 function fillAgentSel(keep){const sel=document.getElementById('tAgent');const k=keep||sel.value;sel.innerHTML='';
