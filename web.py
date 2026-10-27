@@ -455,7 +455,8 @@ input[type=checkbox]{accent-color:var(--pri);width:15px;height:15px;cursor:point
 .tpb.ag{background:var(--pri-soft);color:var(--pri)}
 .tpb.pub{background:#f1f5f9;color:#475569}
 .tpb.lan{background:#fffbeb;color:#b45309}
-.tpb.pend{background:#fff7ed;color:#c2410c}
+.badge.pend{background:#fff7ed;color:#c2410c}
+.badge.pend .d{background:#ea580c;box-shadow:0 0 0 3px #ffedd5}
 button.danger{background:var(--bad);border-color:var(--bad);color:#fff;box-shadow:0 1px 2px rgba(225,29,72,.25)}
 button.danger:hover{background:#be123c}
 #askModal .mbox{max-width:420px}
@@ -684,7 +685,7 @@ function renderAgents(){const list=agFiltered();
   tr.innerHTML=`<td><input type="checkbox" ${SELA.has(a.name)?'checked':''} onchange="selA('${esc(a.name)}',this.checked)"></td>
   <td><span class="nmrow"><span class="nm" onclick="editNm(this,'${esc(a.name)}','${a.id}')" title="点击改名">${escHtml(a.name)}</span><button class="cp" title="复制名称" onclick="copyName('${esc(a.name)}',this)">⧉</button></span></td>
   <td>${typeBadge}</td>
-  <td>${a.pending?'<span class="tpb pend">待部署</span>':a.online===null?'<span class="hint">—</span>':`<span class="badge ${a.online?'on':'off'}"><span class="d"></span>${a.online?'在线':'离线'}</span>`}</td>
+  <td>${a.pending?'<span class="badge pend"><span class="d"></span>待部署</span>':a.online===null?'<span class="hint">—</span>':`<span class="badge ${a.online?'on':'off'}"><span class="d"></span>${a.online?'在线':'离线'}</span>`}</td>
   <td><span class="ver ${a.ver!=='-'?'v2':''}">${a.ver}</span></td><td class="kv">${a.seen}</td><td class="kv">${a.ip}${a.jump?' <span class="hint">(经 '+escHtml(a.jump)+')</span>':''}</td>
   <td style="white-space:nowrap">${ops}
    <button class="warn" onclick="rmAgent('${esc(a.name)}')">删除</button></td>`;tb.appendChild(tr)}}
