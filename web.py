@@ -276,14 +276,14 @@ PAGE = r'''<!DOCTYPE html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>tailpet 控制台</title>
 <style>
-:root{--pri:#4f46e5;--pri-h:#4338ca;--pri-soft:#eef2ff;--ok:#059669;--ok-bg:#ecfdf5;--bad:#e11d48;
+:root{--pri:#2563eb;--pri-h:#1d4ed8;--pri-soft:#eff6ff;--ok:#059669;--ok-bg:#ecfdf5;--bad:#e11d48;
 --bad-bg:#fff1f2;--txt:#0f172a;--sub:#64748b;--line:#e2e8f0;--bg:#f8fafc;--card:#fff}
 *{box-sizing:border-box}
 body{font-family:-apple-system,"Segoe UI","Microsoft YaHei",system-ui,sans-serif;margin:0;background:var(--bg);color:var(--txt);font-size:14px}
 header{position:sticky;top:0;z-index:5;background:rgba(255,255,255,.86);backdrop-filter:blur(8px);
 border-bottom:1px solid var(--line);padding:12px 22px;display:flex;gap:18px;align-items:center;flex-wrap:wrap}
 .logo{display:flex;align-items:center;gap:9px;font-weight:700;font-size:16px;letter-spacing:.2px}
-.logo .dot{width:10px;height:10px;border-radius:50%;background:linear-gradient(135deg,#6366f1,#8b5cf6);box-shadow:0 0 0 4px var(--pri-soft)}
+.logo .dot{width:10px;height:10px;border-radius:50%;background:#334155;box-shadow:0 0 0 4px #e2e8f0}
 .hstat{font-size:13px;color:var(--sub)}
 .hstat b{color:var(--txt)}
 .spacer{flex:1}
@@ -303,10 +303,10 @@ button{border:1px solid var(--line);background:#fff;border-radius:9px;padding:5p
 font-size:12.5px;color:var(--txt);transition:all .13s;font-family:inherit}
 button:hover{border-color:#cbd5e1;background:#f8fafc;transform:translateY(-1px)}
 button:active{transform:none}
-button.pri{background:var(--pri);color:#fff;border-color:var(--pri);box-shadow:0 1px 2px rgba(79,70,229,.35)}
+button.pri{background:var(--pri);color:#fff;border-color:var(--pri);box-shadow:0 1px 2px rgba(37,99,235,.28)}
 button.pri:hover{background:var(--pri-h);border-color:var(--pri-h)}
-button.ghost{border-color:transparent;background:var(--pri-soft);color:var(--pri)}
-button.ghost:hover{background:#e0e7ff}
+button.ghost{border-color:transparent;background:#f1f5f9;color:#334155}
+button.ghost:hover{background:#e2e8f0}
 button.warn{color:var(--bad);border-color:#fecdd3}
 button.warn:hover{background:var(--bad-bg)}
 input,select{border:1px solid var(--line);border-radius:9px;padding:6px 10px;font-size:12.5px;background:#fff;

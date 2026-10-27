@@ -1421,10 +1421,16 @@ switch ($Cmd.ToLower()) {
         if ($port) { $pyArgs += @('--port', $port) }
         if ($bg) { $pyArgs += '--bg' }
         if ($bg) {
-            $proc = Start-Process python -ArgumentList $pyArgs -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $env:TEMP 'tailpet-web.log') -RedirectStandardError (Join-Path $env:TEMP 'tailpet-web.err.log')
-            Start-Sleep 2
-            if ($proc.HasExited) { Write-Output '!! 控制台启动失败（查看 %TEMP%	ailpet-web.err.log）'; return }
-            Write-Output "控制台已后台运行 (pid $($proc.Id))——停止: tailpet web-stop"
+            # cmd /c ... >> log：重定向在 cmd 内部——Start-Process 带重定向参数会走 UseShellExecute=false，
+            # 句柄继承变化导致调用方管道被隐藏的 python 持有（曾致外层命令挂死）
+            $webLog = Join-Path $env:TEMP 'tailpet-web.log'
+            $cmdLine = 'python "' + $webpy + '"' + $(if ($port) { ' --port ' + $port }) + ' --bg >> "' + $webLog + '" 2>&1'
+            Start-Process cmd -ArgumentList '/c', $cmdLine -WindowStyle Hidden | Out-Null
+            Start-Sleep 3
+            try { $wc = Get-Content (Join-Path $pkgDir 'web.json') -Raw -Encoding UTF8 | ConvertFrom-Json } catch { $wc = $null }
+            if ($wc -and $wc.pid -and (Get-Process -Id ([int]$wc.pid) -ErrorAction SilentlyContinue)) {
+                Write-Output "控制台已后台运行 (pid $($wc.pid), http://127.0.0.1:$($wc.port))——停止: tailpet web-stop"
+            } else { Write-Output '!! 控制台启动失败（查看 %TEMP%	ailpet-web.log）' }
         } else {
             Write-Output '控制台前台运行中（Ctrl+C 停止）...'
             & python @pyArgs
