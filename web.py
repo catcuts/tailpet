@@ -456,8 +456,8 @@ function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')}
 let SELA=new Set(),SELT=new Set();
 function selA(n,v){v?SELA.add(n):SELA.delete(n);updateSelUI()}
 function selT(p,v){v?SELT.add(String(p)):SELT.delete(String(p));updateSelUI()}
-function toggleAllA(v){agFiltered().forEach(a=>v?SELA.add(a.name):SELA.delete(a.name));renderAgents()}
-function toggleAllT(v){tFiltered().forEach(t=>v?SELT.add(String(t.port)):SELT.delete(String(t.port)));renderTunnels()}
+function toggleAllA(v){agFiltered().forEach(a=>v?SELA.add(a.name):SELA.delete(a.name));renderAgents();updateSelUI()}
+function toggleAllT(v){tFiltered().forEach(t=>v?SELT.add(String(t.port)):SELT.delete(String(t.port)));renderTunnels();updateSelUI()}
 function updateSelUI(){
  const bRm=document.getElementById('batchRm'),bSt=document.getElementById('batchStop');
  bRm.style.display=SELA.size?'':'none';bRm.textContent=`删除所选 (${SELA.size})`;
