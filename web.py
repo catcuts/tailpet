@@ -329,6 +329,12 @@ max-height:280px;overflow:auto;white-space:pre-wrap;font-family:"Cascadia Code",
 .ver{display:inline-block;min-width:30px;text-align:center;background:#f1f5f9;border-radius:6px;padding:1px 7px;
 font-size:11.5px;color:var(--sub);font-weight:600}
 .ver.v2{background:var(--pri-soft);color:var(--pri)}
+sup.tg{font-size:10px;color:var(--sub);background:#f1f5f9;border:1px solid var(--line);border-radius:4px;
+padding:1px 4px;margin-left:4px;font-weight:600;vertical-align:super;letter-spacing:.5px;line-height:1}
+.nmrow{display:inline-flex;align-items:center;gap:4px}
+.cp{border:none;background:none;padding:2px 4px;font-size:12px;color:#94a3b8;cursor:pointer;vertical-align:middle}
+.cp:hover{color:var(--pri);background:var(--pri-soft);border-radius:5px}
+input[type=checkbox]{accent-color:var(--pri);width:15px;height:15px;cursor:pointer}
 .row{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin:8px 0}
 .hint{font-size:11.5px;color:#94a3b8}
 .kv{font-size:12.5px;color:var(--sub)}
@@ -368,19 +374,21 @@ footer{margin:8px 22px 22px;color:#94a3b8;font-size:11.5px;text-align:center}
  <h3><span class="m">🖥️</span>机器管理</h3><span class="cnt" id="agCnt"></span><span class="spacer"></span>
  <select id="agStat"><option value="">全部状态</option><option value="1">在线</option><option value="0">离线</option></select>
  <input id="agFilter" placeholder="按名称过滤…" style="width:150px">
+ <button class="warn" id="batchRm" style="display:none" onclick="rmAgents()">删除所选</button>
  <button class="pri" onclick="addAgent()">＋ 新增机器</button>
 </div>
 <div style="overflow-x:auto">
-<table id="agents"><thead><tr><th>名称（点击改名）</th><th>状态</th><th>版本</th><th>最后心跳</th><th>出口 IP</th><th>操作</th></tr></thead><tbody></tbody></table>
+<table id="agents"><thead><tr><th style="width:30px"><input type="checkbox" id="ckAllA" onchange="toggleAllA(this.checked)"></th><th>名称（点击改名）</th><th>状态</th><th>版本</th><th>最后心跳</th><th>出口 IP</th><th>操作</th></tr></thead><tbody></tbody></table>
 </div></div>
 
 <div class="card"><div class="bar">
  <h3><span class="m">🔗</span>隧道管理</h3><span class="cnt" id="tCnt"></span><span class="spacer"></span>
  <input id="tFilter" placeholder="过滤端口/目标…" style="width:150px">
+ <button class="warn" id="batchStop" style="display:none" onclick="stopSelTunnels()">停止所选</button>
  <button onclick="openTunModal()">＋ 新建隧道</button>
  <button class="warn" onclick="stopAllTunnels()">全部停止</button>
 </div>
-<table id="tunnels"><thead><tr><th>本地端口</th><th>目标</th><th>状态</th><th>建立时间</th><th>操作</th></tr></thead><tbody></tbody></table>
+<table id="tunnels"><thead><tr><th style="width:30px"><input type="checkbox" id="ckAllT" onchange="toggleAllT(this.checked)"></th><th>本地端口</th><th>目标</th><th>状态</th><th>建立时间</th><th>操作</th></tr></thead><tbody></tbody></table>
 </div>
 
 <div class="modal" id="fileModal" onclick="if(event.target===this)closeModals()"><div class="mbox" style="max-width:560px">
@@ -430,6 +438,26 @@ function toast(m,ms){const t=document.getElementById('toast');t.textContent=m;t.
 async function api(p,body){const r=await fetch(p,body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:undefined);return r.json()}
 function esc(s){return String(s).replace(/'/g,"\\'")}
 function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')}
+let SELA=new Set(),SELT=new Set();
+function selA(n,v){v?SELA.add(n):SELA.delete(n);updateSelUI()}
+function selT(p,v){v?SELT.add(String(p)):SELT.delete(String(p));updateSelUI()}
+function toggleAllA(v){agFiltered().forEach(a=>v?SELA.add(a.name):SELA.delete(a.name));renderAgents()}
+function toggleAllT(v){tFiltered().forEach(t=>v?SELT.add(String(t.port)):SELT.delete(String(t.port)));renderTunnels()}
+function updateSelUI(){
+ const bRm=document.getElementById('batchRm'),bSt=document.getElementById('batchStop');
+ bRm.style.display=SELA.size?'':'none';bRm.textContent=`删除所选 (${SELA.size})`;
+ bSt.style.display=SELT.size?'':'none';bSt.textContent=`停止所选 (${SELT.size})`}
+async function rmAgents(){const names=[...SELA];if(!names.length)return;
+ if(!confirm(`确认删除所选 ${names.length} 台机器？\n\n${names.join('、')}\n\n注意：仅删除 hub 注册（agent 若仍在运行会自动重新注册；彻底移除需在目标机卸载）。`))return;
+ for(const n of names){await api('/api/agent-rm',{name:n})}
+ SELA.clear();toast(`已删除 ${names.length} 台`);refresh()}
+async function stopSelTunnels(){const ps=[...SELT];if(!ps.length)return;
+ if(!confirm(`确认停止所选 ${ps.length} 条隧道？\n\n端口：${ps.join('、')}`))return;
+ for(const p of ps){await api('/api/tunnel-stop',{lport:p})}
+ SELT.clear();toast(`已停止 ${ps.length} 条`);refresh()}
+function copyName(n){(navigator.clipboard?navigator.clipboard.writeText(n):Promise.reject()).then(
+ ()=>toast('已复制: '+n)).catch(()=>{const ta=document.createElement('textarea');ta.value=n;document.body.appendChild(ta);
+ ta.select();document.execCommand('copy');ta.remove();toast('已复制: '+n)})}
 
 async function refresh(){
  try{const s=await api('/api/state');AG=s.agents;TUN=s.tunnels;CFG=s.config;
@@ -437,7 +465,9 @@ async function refresh(){
   document.getElementById('cnt').textContent=`站点 ${s.agents.length} · 在线 ${s.agents.filter(a=>a.online).length}`;
   if(document.activeElement.id!=='rf')document.getElementById('rf').value=s.config.refresh;
   if(document.activeElement.id!=='dlDir')document.getElementById('dlDir').value=s.config.download_dir;
-  renderAgents();renderTunnels();fillAgentSel();
+  const an=new Set(AG.map(a=>a.name));SELA=new Set([...SELA].filter(x=>an.has(x)));
+  const tn=new Set(TUN.map(t=>String(t.port)));SELT=new Set([...SELT].filter(x=>tn.has(x)));
+  renderAgents();renderTunnels();fillAgentSel();updateSelUI();
  }catch(e){document.getElementById('hubstat').innerHTML='<b style="color:var(--bad)">● 控制台服务异常</b>'}
 }
 function agFiltered(){const q=(document.getElementById('agFilter').value||'').toLowerCase(),st=document.getElementById('agStat').value;
@@ -446,7 +476,8 @@ function renderAgents(){const list=agFiltered();
  document.getElementById('agCnt').textContent=`${list.length}/${AG.length} 台`;
  const tb=document.querySelector('#agents tbody');tb.innerHTML=list.length?'':'<tr><td colspan="6" class="hint">（无匹配机器）</td></tr>';
  for(const a of list){const tr=document.createElement('tr');
-  tr.innerHTML=`<td><span class="nm" onclick="editNm(this,'${esc(a.name)}','${a.id}')" title="点击改名">${escHtml(a.name)}</span></td>
+  tr.innerHTML=`<td><input type="checkbox" ${SELA.has(a.name)?'checked':''} onchange="selA('${esc(a.name)}',this.checked)"></td>
+  <td><span class="nmrow"><span class="nm" onclick="editNm(this,'${esc(a.name)}','${a.id}')" title="点击改名">${escHtml(a.name)}</span><button class="cp" title="复制名称" onclick="copyName('${esc(a.name)}')">⧉</button></span></td>
   <td><span class="badge ${a.online?'on':'off'}"><span class="d"></span>${a.online?'在线':'离线'}</span></td>
   <td><span class="ver ${a.ver!=='-'?'v2':''}">${a.ver}</span></td><td class="kv">${a.seen}</td><td class="kv">${a.ip}</td>
   <td style="white-space:nowrap"><button class="ghost" onclick="openCmd('${esc(a.name)}','${a.id}')">执行命令</button>
@@ -460,7 +491,9 @@ function renderTunnels(){const list=tFiltered();
  document.getElementById('tCnt').textContent=`${list.length}/${TUN.length} 条`;
  const tb=document.querySelector('#tunnels tbody');tb.innerHTML=list.length?'':'<tr><td colspan="5" class="hint">（无匹配隧道）</td></tr>';
  for(const t of list){const tr=document.createElement('tr');
-  tr.innerHTML=`<td><b>${t.port}</b></td><td>${escHtml(t.target)}</td>
+  const seg=t.target.split(' -> ');const relay=seg[0]||t.target,tgt=seg[1]||'';
+  tr.innerHTML=`<td><input type="checkbox" ${SELT.has(String(t.port))?'checked':''} onchange="selT('${t.port}',this.checked)"></td>
+  <td><b>${t.port}</b></td><td>${escHtml(relay)}<sup class="tg">中转</sup> <span class="kv">→</span> ${escHtml(tgt)}<sup class="tg">目标</sup></td>
   <td><span class="badge ${t.alive?'on':'off'}"><span class="d"></span>${t.alive?'运行中':'已失联'}</span></td>
   <td class="kv">${t.started}</td><td><button class="warn" onclick="stopTunnel(${t.port})">停止</button></td>`;tb.appendChild(tr)}}
 function fillAgentSel(keep){const sel=document.getElementById('tAgent');const k=keep||sel.value;sel.innerHTML='';
