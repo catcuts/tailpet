@@ -329,8 +329,9 @@ max-height:280px;overflow:auto;white-space:pre-wrap;font-family:"Cascadia Code",
 .ver{display:inline-block;min-width:30px;text-align:center;background:#f1f5f9;border-radius:6px;padding:1px 7px;
 font-size:11.5px;color:var(--sub);font-weight:600}
 .ver.v2{background:var(--pri-soft);color:var(--pri)}
-sup.tg{font-size:10px;color:var(--sub);background:#f1f5f9;border:1px solid var(--line);border-radius:4px;
+sup.tg{font-size:10px;color:var(--pri);background:var(--pri-soft);border:1px solid #dbeafe;border-radius:4px;
 padding:1px 4px;margin-left:4px;font-weight:600;vertical-align:super;letter-spacing:.5px;line-height:1}
+/* 标签块用淡蓝（信息标注，同版本徽标）：曾与离线/失联徽章同用灰色系致混淆 */
 .nmrow{display:inline-flex;align-items:center;gap:4px}
 .cp{border:none;background:none;padding:2px 4px;font-size:12px;color:#94a3b8;cursor:pointer;vertical-align:middle}
 .cp:hover{color:var(--pri);background:var(--pri-soft);border-radius:5px}
