@@ -283,7 +283,7 @@ body{font-family:-apple-system,"Segoe UI","Microsoft YaHei",system-ui,sans-serif
 header{position:sticky;top:0;z-index:5;background:rgba(255,255,255,.86);backdrop-filter:blur(8px);
 border-bottom:1px solid var(--line);padding:12px 22px;display:flex;gap:18px;align-items:center;flex-wrap:wrap}
 .logo{display:flex;align-items:center;gap:9px;font-weight:700;font-size:16px}
-.logo .dot{width:10px;height:10px;border-radius:50%;background:#334155;box-shadow:0 0 0 4px #e2e8f0}
+.logo .dot{width:10px;height:10px;border-radius:50%;background:var(--pri);box-shadow:0 0 0 4px var(--pri-soft)}
 .hstat{font-size:13px;color:var(--sub)}.hstat b{color:var(--txt)}
 .spacer{flex:1}
 .card{background:var(--card);margin:16px 22px;border:1px solid var(--line);border-radius:14px;
