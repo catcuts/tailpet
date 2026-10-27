@@ -372,6 +372,12 @@ font-size:11.5px;color:var(--sub);font-weight:600}
 .cp{border:none;background:none;padding:2px 4px;font-size:12px;color:#94a3b8;cursor:pointer;vertical-align:middle}
 .cp:hover{color:var(--pri);background:var(--pri-soft);border-radius:5px}
 .cp.ok{color:var(--ok);background:var(--ok-bg);border-radius:5px}
+.docwrap{position:relative}
+.docCopy{position:absolute;top:10px;right:10px;z-index:2;border:none;background:rgba(255,255,255,.07);
+color:#94a3b8;padding:4px 8px;border-radius:7px;cursor:pointer;font-size:14px;transition:all .13s}
+.docCopy:hover{color:#e2e8f0;background:rgba(255,255,255,.14)}
+.docCopy.ok{color:#34d399;background:rgba(52,211,153,.13)}
+#docModal pre{max-height:calc(88vh - 120px)}
 input[type=checkbox]{accent-color:var(--pri);width:15px;height:15px;cursor:pointer}
 button.danger{background:var(--bad);border-color:var(--bad);color:#fff;box-shadow:0 1px 2px rgba(225,29,72,.25)}
 button.danger:hover{background:#be123c}
@@ -487,9 +493,10 @@ footer{margin:8px 22px 22px;color:#94a3b8;font-size:11.5px;text-align:center}
 
 <div class="modal" id="docModal" onclick="if(event.target===this)closeModals()"><div class="mbox" style="max-width:720px">
  <div class="mhead"><span class="m">📄</span>说明书 · <span id="docName" style="color:var(--pri)"></span>
-  <button class="cp" id="docCopyBtn" title="复制全部" style="font-size:15px" onclick="copyDoc(this)">⧉</button>
   <button class="x" onclick="closeModals()">✕</button></div>
- <div class="mbody"><pre id="docText" style="max-height:62vh"></pre></div>
+ <div class="mbody" style="overflow:hidden;padding:12px 14px"><div class="docwrap">
+  <button class="docCopy" id="docCopyBtn" title="复制全部" onclick="copyDoc(this)">⧉</button>
+  <pre id="docText" style="margin:0"></pre></div></div>
 </div></div>
 
 <div id="toast"></div>
