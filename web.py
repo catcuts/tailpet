@@ -390,7 +390,7 @@ footer{margin:8px 22px 22px;color:#94a3b8;font-size:11.5px;text-align:center}
 </div>
 
 <div class="modal" id="fileModal" onclick="if(event.target===this)closeModals()"><div class="mbox" style="max-width:560px">
- <div class="mhead"><span class="m">📁</span>文件传输 · <span id="fmName" style="color:var(--pri)"></span>
+ <div class="mhead"><span class="m">📁</span>传输文件 · <span id="fmName" style="color:var(--pri)"></span>
   <button class="x" onclick="closeModals()">✕</button></div>
  <div class="mbody">
 <div class="row">⬇️ 取回　远端路径 <input id="fPath" style="flex:1;min-width:220px" placeholder="C:\ProgramData\tailpet\spool\out.log">
@@ -478,10 +478,10 @@ function renderAgents(){const list=agFiltered();
   <td><span class="nmrow"><span class="nm" onclick="editNm(this,'${esc(a.name)}','${a.id}')" title="点击改名">${escHtml(a.name)}</span><button class="cp" title="复制名称" onclick="copyName('${esc(a.name)}')">⧉</button></span></td>
   <td><span class="badge ${a.online?'on':'off'}"><span class="d"></span>${a.online?'在线':'离线'}</span></td>
   <td><span class="ver ${a.ver!=='-'?'v2':''}">${a.ver}</span></td><td class="kv">${a.seen}</td><td class="kv">${a.ip}</td>
-  <td style="white-space:nowrap"><button class="ghost" onclick="openCmd('${esc(a.name)}','${a.id}')">执行命令</button>
-   <button onclick="openFile('${esc(a.name)}')">文件</button>
-   <button onclick="openTunModal('${esc(a.name)}')">隧道</button>
-   <button onclick="genPkgFor('${esc(a.name)}')">安装包</button>
+  <td style="white-space:nowrap"><button onclick="openCmd('${esc(a.name)}','${a.id}')">执行命令</button>
+   <button onclick="openFile('${esc(a.name)}')">传输文件</button>
+   <button onclick="openTunModal('${esc(a.name)}')">新建隧道</button>
+   <button onclick="genPkgFor('${esc(a.name)}')">生成安装包</button>
    <button class="warn" onclick="rmAgent('${esc(a.name)}')">删除</button></td>`;tb.appendChild(tr)}}
 function tFiltered(){const q=(document.getElementById('tFilter').value||'').toLowerCase();
  return TUN.filter(t=>!q||String(t.port).includes(q)||t.target.toLowerCase().includes(q))}
