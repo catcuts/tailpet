@@ -289,6 +289,10 @@ border-bottom:1px solid var(--line);padding:12px 22px;display:flex;gap:18px;alig
 .card{background:var(--card);margin:16px 22px;border:1px solid var(--line);border-radius:14px;
 box-shadow:0 1px 2px rgba(15,23,42,.04);padding:16px 18px}
 .bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+/* 工具栏等高对齐：所有子元素统一 28px 高，顶/底间距一致（曾因高度不一 + 中线对齐显得偏上） */
+.bar>*{align-self:center}
+.bar h3,.bar .cnt,.bar .hint,.bar .hstat{line-height:28px}
+.bar button,.bar input,.bar select{height:28px;padding:0 11px;line-height:26px}
 .bar h3{margin:0;font-size:13.5px;display:flex;align-items:center;gap:8px;font-weight:650}
 .bar .m{font-size:15px}
 .bar .cnt{color:var(--sub);font-weight:400;font-size:12px}
