@@ -247,6 +247,45 @@ def tunnel_stop(lport):
     tunnels_save(kept)
     return {'ok': True, 'stopped': killed}
 
+
+
+def gen_prompt(name):
+    """agent 说明书（与 CLI Build-PromptText agent 分支同文）"""
+    BS = chr(92)
+    L = []
+    L.append(name + '（agent 模式）')
+    L.append('')
+    L.append('- **连接方式**: 经 hub 中转（出站长轮询，无需开放入站端口）。')
+    L.append('')
+    L.append('- **执行命令**: `tailpet agent exec ' + name + ' <命令>` ')
+    L.append('  —— 在该机 cmd 里执行，非交互，120 秒超时。')
+    L.append('')
+    L.append('- **该机内网 C 机（密码模式，推荐）**: `tailpet agent exec ' + name + ' "ssh-p 密码 用户@C_IP 命令"` —— 走 plink 密码认证（keyscan 自动信任主机密钥），C 机零预装')
+    L.append('  公钥模式（C 已装该机公钥时）: `tailpet agent exec ' + name + ' "ssh-c 用户@C_IP 命令"`（公钥在 hub /metas 的 pubkey 字段）。')
+    L.append('')
+    L.append('- **Web 服务访问**: `tailpet tunnel ' + name + ' <服务端口>` 其中：')
+    L.append('  - <服务端口>指目标机上的端口（web/RDP 等任意 TCP）；')
+    L.append('  - 本地端口缺省自动分配系统空闲端口（也可显式指定），分配结果见命令输出或 `tailpet tunnel list`；')
+    L.append('  - 建好后自动打开浏览器，同目标重复执行自动复用；')
+    L.append('  - 默认转该机 127.0.0.1，服务只绑该机内网 IP 时：`tailpet tunnel ' + name + ' <服务端口> <本地端口> <目标IP>`；')
+    L.append('  - 查看用 `tailpet tunnel list`；停止用 `tailpet tunnel-stop [本地端口]`（无参数=全部）。')
+    L.append('')
+    L.append('- **命令规则**: 单行；引号最多一层；交互确认一律加静默参数；`!` 会被吞掉；不要 chcp 65001。')
+    L.append('  长度上限约 8K（超长内容用 file put 推脚本再执行）；`|` 管道符易被多层 shell 拆坏（grep 多模式用多个 -e）；')
+    L.append('  多条 ssh 命令不要用 && 串联（一条 exec 一条命令）；密码含特殊字符时 ssh-p 不可靠，改用 EncodedCommand。')
+    L.append('- **大输出/文件**: 大输出命令一律重定向到该机文件再取回——`tailpet agent exec ' + name + ' "bigcmd > C:' + BS + 'ProgramData' + BS + 'tailpet' + BS + 'spool' + BS + 'out.log"` 然后 `tailpet file get ' + name + ' C:' + BS + 'ProgramData' + BS + 'tailpet' + BS + 'spool' + BS + 'out.log`；推文件 `tailpet file put ' + name + ' 本地文件`；大日志先 makecab 压缩；exec 直接回传只适合小结果（<50KB）；长命令加 `-Timeout 秒`')
+    L.append('')
+    L.append('- **注意**:')
+    L.append('    - tailpet = 本机已安装的组网管理 CLI（PATH 全局可用）不是拼写错误。')
+    L.append('    - agent 模式不支持 ssh 交互登录。')
+    L.append('    - 远程 PowerShell 版本 2.0~5.1 不等：')
+    L.append('      - 先探测再写命令——`tailpet agent exec ' + name + ' powershell -Command Get-Host`（输出表里的 Version 行，如 2.0 / 5.1）；')
+    L.append('      - 探测为 2.0 时没有 ConvertFrom-Json / Invoke-RestMethod / Get-ScheduledTask；')
+    L.append('      - 中文输出按 GBK 解码，不要 chcp 65001。')
+    L.append('    - 复杂命令（多层引号/换行/特殊字符）改用 powershell -EncodedCommand <base64>（UTF-16LE 的 base64），彻底免转义；简单命令直接跑即可。')
+    L.append('    - 当需要打开该机可访问的 Web 服务页面进行操作时，应使用上述"Web 服务访问"的方式在本地浏览器打开，然后使用 /kimi-webbridge 技能操作。')
+    return chr(10).join(L)
+
 def make_state():
     metas = get_metas()
     now = int(time.time())
@@ -446,6 +485,13 @@ footer{margin:8px 22px 22px;color:#94a3b8;font-size:11.5px;text-align:center}
  </div>
 </div></div>
 
+<div class="modal" id="docModal" onclick="if(event.target===this)closeModals()"><div class="mbox" style="max-width:720px">
+ <div class="mhead"><span class="m">📄</span>说明书 · <span id="docName" style="color:var(--pri)"></span>
+  <button class="cp" id="docCopyBtn" title="复制全部" style="font-size:14px;margin-left:auto" onclick="copyDoc(this)">⧉</button>
+  <button class="x" onclick="closeModals()">✕</button></div>
+ <div class="mbody"><pre id="docText" style="max-height:62vh"></pre></div>
+</div></div>
+
 <div id="toast"></div>
 <footer>tailpet 控制台 · 仅本机访问 · 危险操作需确认</footer>
 <script>
@@ -472,6 +518,14 @@ async function stopSelTunnels(){const ps=[...SELT];if(!ps.length)return;
  if(!await ask({title:`停止 ${ps.length} 条隧道`,danger:true,msg:`确认停止所选 ${ps.length} 条隧道？\n\n端口：${ps.join('、')}`}))return;
  for(const p of ps){await api('/api/tunnel-stop',{lport:p})}
  SELT.clear();toast(`已停止 ${ps.length} 条`);refresh()}
+let DOC_TEXT='';
+function genDoc(name){document.getElementById('docName').textContent=name;
+ const cur=document.getElementById('docCopyBtn');cur.textContent='⏉';cur.classList.remove('ok');
+ document.getElementById('docText').textContent='生成中…';
+ document.getElementById('docModal').classList.add('show');
+ api('/api/gen-prompt',{name}).then(r=>{DOC_TEXT=r.ok?r.text:('失败: '+r.err);
+  document.getElementById('docText').textContent=DOC_TEXT})}
+function copyDoc(btn){copyName(DOC_TEXT,btn)}
 function copyName(n,btn){const ok=()=>{if(!btn)return;btn.textContent='✓';btn.classList.add('ok');
  clearTimeout(btn._t);btn._t=setTimeout(()=>{btn.textContent='⧉';btn.classList.remove('ok')},2000)};
  (navigator.clipboard?navigator.clipboard.writeText(n):Promise.reject()).then(ok)
@@ -503,6 +557,7 @@ function renderAgents(){const list=agFiltered();
    <button onclick="openFile('${esc(a.name)}')">传输文件</button>
    <button onclick="openTunModal('${esc(a.name)}')">新建隧道</button>
    <button onclick="genPkgFor('${esc(a.name)}')">生成安装包</button>
+   <button onclick="genDoc('${esc(a.name)}')">生成说明书</button>
    <button class="warn" onclick="rmAgent('${esc(a.name)}')">删除</button></td>`;tb.appendChild(tr)}}
 function tFiltered(){const q=(document.getElementById('tFilter').value||'').toLowerCase();
  return TUN.filter(t=>!q||String(t.port).includes(q)||t.target.toLowerCase().includes(q))}
@@ -694,6 +749,12 @@ class Handler(BaseHTTPRequestHandler):
                 rpath = unquote(self.headers.get('X-Path', ''))
                 origname = unquote(self.headers.get('X-File', ''))
                 return self._json(file_put(name, data, rpath, origname))
+            if self.path == '/api/gen-prompt':
+                b = json.loads(self._body().decode('utf-8'))
+                a = agent_by_name(b.get('name', ''))
+                if not a:
+                    return self._json({'ok': False, 'err': 'agent 不存在'})
+                return self._json({'ok': True, 'text': gen_prompt(a['meta'].get('name') or b.get('name'))})
             if self.path == '/api/agent-rm':
                 b = json.loads(self._body().decode('utf-8'))
                 a = agent_by_name(b.get('name', ''))
