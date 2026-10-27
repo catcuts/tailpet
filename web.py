@@ -668,9 +668,19 @@ def main():
         args.remove('--bg')
     if '--port' in args:
         port = int(args[args.index('--port') + 1])
-    if not port:
-        port = free_port()
     cfg = load_cfg()
+    if not port:
+        # 端口粘性：复用上次端口（重启后 URL 不变）；被占才换新
+        last = cfg.get('port')
+        if last:
+            import socket as _sk
+            try:
+                _sk.create_connection(('127.0.0.1', int(last)), timeout=0.5).close()
+                last = None  # 端口仍被占用（可能是残留实例）
+            except OSError:
+                port = int(last)
+        if not last:
+            port = free_port()
     cfg['port'] = port
     if bg:
         cfg['pid'] = os.getpid()
