@@ -377,17 +377,19 @@ footer{margin:8px 22px 22px;color:#94a3b8;font-size:11.5px;text-align:center}
 <table id="tunnels"><thead><tr><th>本地端口</th><th>目标</th><th>状态</th><th>建立时间</th><th>操作</th></tr></thead><tbody></tbody></table>
 </div>
 
-<div class="card" id="fileCard" style="display:none"><div class="bar">
- <h3><span class="m">📁</span>文件传输</h3><span id="fileName" style="color:var(--pri);font-weight:650"></span><span class="spacer"></span>
- <button class="ghost" onclick="document.getElementById('fileCard').style.display='none'">收起</button>
-</div>
-<div class="row">⬇️ 取回　远端路径 <input id="fPath" style="flex:1;min-width:250px" placeholder="C:\ProgramData\tailpet\spool\out.log">
+<div class="modal" id="fileModal" onclick="if(event.target===this)closeModals()"><div class="mbox" style="max-width:560px">
+ <div class="mhead"><span class="m">📁</span>文件传输 · <span id="fmName" style="color:var(--pri)"></span>
+  <button class="x" onclick="closeModals()">✕</button></div>
+ <div class="mbody">
+<div class="row">⬇️ 取回　远端路径 <input id="fPath" style="flex:1;min-width:220px" placeholder="C:\ProgramData\tailpet\spool\out.log">
  <button class="pri" onclick="doGet()">取回</button></div>
-<div class="row">　目录　<input id="dlDir" style="flex:1;min-width:220px"> <button class="ghost" onclick="saveCfg2()">保存</button></div>
+<div class="row">　目录　<input id="dlDir" style="flex:1;min-width:200px"> <button class="ghost" onclick="saveCfg2()">保存</button></div>
 <div class="sep"></div>
-<div class="row">⬆️ 推送　<input type="file" id="fUp"> 目标 <input id="fRemote" placeholder="spool\同名" style="width:190px">
+<div class="row">⬆️ 推送　<input type="file" id="fUp"> 目标 <input id="fRemote" placeholder="spool\同名" style="width:170px">
  <button class="pri" onclick="doPut()">推送</button></div>
-<pre id="fOut">（传输记录）</pre></div>
+<pre id="fOut">（传输记录）</pre>
+ </div>
+</div></div>
 
 <div class="modal" id="cmdModal" onclick="if(event.target===this)closeModals()"><div class="mbox">
  <div class="mhead"><span class="m">⌨️</span>执行命令 · <span id="cmName" style="color:var(--pri)"></span>
@@ -489,14 +491,14 @@ async function runInModal(){const c=document.getElementById('cmCmd').value.trim(
  const r=await api('/api/exec',{name:CM.name,cmd:c,timeout:t});
  const h2=loadHist();h2[h2.length-1]={t:new Date().toLocaleString(),cmd:c,exit:r.exit,
   out:(r.stdout||'')+(r.stderr?'\n[stderr] '+r.stderr:'')};saveHist(h2);renderHist()}
-function openFile(n){document.getElementById('fileCard').style.display='block';document.getElementById('fileName').textContent=n;
- document.getElementById('fileCard').scrollIntoView({behavior:'smooth',block:'center'})}
-async function doGet(){const n=document.getElementById('fileName').textContent,p=document.getElementById('fPath').value.trim();
+function openFile(n){document.getElementById('fmName').textContent=n;
+ document.getElementById('fileModal').classList.add('show')}
+async function doGet(){const n=document.getElementById('fmName').textContent,p=document.getElementById('fPath').value.trim();
  if(!p)return toast('请填远端路径');toast('⏳ 取回中…（大文件耐心等待）',30000);
  const r=await api('/api/file-get',{name:n,rpath:p});
  toast(r.ok?`已取回: ${r.local}（${r.size} bytes）`:'失败: '+r.err,5000);
  document.getElementById('fOut').textContent+=`\n${r.ok?'✅':'❌'} ${p} → ${r.local||r.err}`}
-async function doPut(){const n=document.getElementById('fileName').textContent,f=document.getElementById('fUp').files[0];
+async function doPut(){const n=document.getElementById('fmName').textContent,f=document.getElementById('fUp').files[0];
  if(!f)return toast('请选择文件');const rp=document.getElementById('fRemote').value.trim();
  if(!confirm(`确认推送到【${n}】？\n\n${f.name} (${f.size} bytes) → ${rp||'spool\\\\'+f.name}`))return;
  toast('⏳ 推送中…',30000);
