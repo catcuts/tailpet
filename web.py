@@ -606,7 +606,7 @@ function renderTunnels(){const list=tFiltered();
   const seg=t.target.split(' -> ');const hasRelay=seg.length>1;
   const machine=hasRelay?seg[0]:'',tgt=hasRelay?seg[1]:t.target;
   tr.innerHTML=`<td><input type="checkbox" ${SELT.has(String(t.port))?'checked':''} onchange="selT('${t.port}',this.checked)"></td>
-  <td><b>${t.port}</b></td><td>${machine?escHtml(machine):'<span class="hint">—</span>'}</td><td>${t.via?escHtml(t.via):'<span class="hint">—</span>'}</td><td>${escHtml(tgt)}</td>
+  <td><b><a href="http://127.0.0.1:${t.port}" target="_blank" style="color:var(--pri);text-decoration:none">${t.port} ↗</a></b></td><td>${machine?escHtml(machine):'<span class="hint">—</span>'}</td><td>${t.via?escHtml(t.via):'<span class="hint">—</span>'}</td><td>${escHtml(tgt)}</td>
   <td><span class="badge ${t.alive?'on':'off'}"><span class="d"></span>${t.alive?'运行中':'已失联'}</span></td>
   <td class="kv">${t.started}</td><td style="white-space:nowrap">${(!t.alive&&t.target.includes(' -> '))?`<button onclick="rebuildTunnel(${t.port})">重建</button> `:''}<button class="warn" onclick="stopTunnel(${t.port})">停止</button></td>`;tb.appendChild(tr)}}
 function fillAgentSel(keep){const sel=document.getElementById('tAgent');const k=keep||sel.value;sel.innerHTML='';
@@ -665,7 +665,7 @@ function openTunModal(name){fillAgentSel(name||null);
 async function createTun(){const n=tAgent.value,p=+tPort.value||80,l=tLport.value.trim(),t=tTarget.value.trim();
  if(!await ask({title:'新建隧道',msg:`确认新建隧道？\n\n${n} ${t||'本机'}:${p} → 本机 ${l||'自动'}`}))return;
  const r=await api('/api/tunnel',{name:n,rport:p,lport:l,target:t});
- if(r.ok){closeModals();toast(`隧道已建立: ${r.url}`);window.open(r.url,'_blank');refresh()}else toast('失败: '+r.err)}
+ if(r.ok){closeModals();toast(`隧道已建立: ${r.url}（点击列表端口打开）`);refresh()}else toast('失败: '+r.err)}
 async function rebuildTunnel(p){const t=TUN.find(x=>String(x.port)===String(p));if(!t)return;
  const seg=t.target.split(' -> ');if(seg.length<2)return toast('直连隧道不支持重建');
  const machine=seg[0],hp=seg[1],ci=hp.lastIndexOf(':');const host=hp.slice(0,ci),rport=hp.slice(ci+1);
@@ -673,7 +673,7 @@ async function rebuildTunnel(p){const t=TUN.find(x=>String(x.port)===String(p));
 
 ${machine} ${host}:${rport} → 本机 ${p}`}))return;
  const r=await api('/api/tunnel',{name:machine,rport:+rport,lport:String(p),target:host});
- if(r.ok){toast(`已重建: ${r.url}`);window.open(r.url,'_blank');refresh()}else toast('失败: '+r.err)}
+ if(r.ok){toast(`已重建: ${r.url}`);refresh()}else toast('失败: '+r.err)}
 async function stopTunnel(p){if(!await ask({title:'停止隧道',danger:true,msg:`确认停止隧道 ${p}？`}))return;const r=await api('/api/tunnel-stop',{lport:p});toast('已停止: '+r.stopped.join(', '));refresh()}
 async function stopAllTunnels(){if(!TUN.length)return toast('无隧道');if(!await ask({title:'全部停止',danger:true,msg:`确认停止全部 ${TUN.length} 条隧道？`}))return;
  const r=await api('/api/tunnel-stop',{});toast('已停止: '+r.stopped.join(', '));refresh()}
