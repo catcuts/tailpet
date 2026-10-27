@@ -383,7 +383,7 @@ footer{margin:8px 22px 22px;color:#94a3b8;font-size:11.5px;text-align:center}
  <h3><span class="m">🔗</span>隧道管理</h3><span class="cnt" id="tCnt"></span><span class="spacer"></span>
  <input id="tFilter" placeholder="过滤端口/目标…" style="width:150px">
  <button class="warn" id="batchStop" style="display:none" onclick="stopSelTunnels()">停止所选</button>
- <button onclick="openTunModal()">＋ 新建隧道</button>
+ <button class="pri" onclick="openTunModal()">＋ 新建隧道</button>
  <button class="warn" onclick="stopAllTunnels()">全部停止</button>
 </div>
 <table id="tunnels"><thead><tr><th style="width:30px"><input type="checkbox" id="ckAllT" onchange="toggleAllT(this.checked)"></th><th>本地端口</th><th>中转</th><th>目标</th><th>状态</th><th>建立时间</th><th>操作</th></tr></thead><tbody></tbody></table>
