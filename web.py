@@ -237,7 +237,8 @@ def spawn_tunnel(name, rport, lport, target):
         return {'ok': False, 'err': 'bridge 启动失败'}
     tunnels.append({'port': str(lport), 'pid': p.pid,
                     'target': '%s -> %s:%s' % (name, t, rport), 'via': 'hub 中继',
-                    'key': key, 'started': time.strftime('%m-%d %H:%M')})
+                    'key': key, 'started': time.strftime('%Y-%m-%d %H:%M:%S'),
+                    'ts': int(time.time())})
     tunnels_save(tunnels)
     return {'ok': True, 'port': lport, 'url': 'http://127.0.0.1:%s' % lport}
 
@@ -307,7 +308,7 @@ def make_state():
             agents.append({'id': aid, 'name': m.get('name') or aid,
                            'type': 'agent',
                            'online': now - ls < 90, 'ver': m.get('ver') or '-',
-                           'seen': time.strftime('%m-%d %H:%M', time.localtime(ls)) if ls else '-',
+                           'seen': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(ls)) if ls else '-',
                            'ip': m.get('ip') or ''})
     for m in reg_load():
         agents.append({'id': 'reg:' + m.get('name', ''), 'name': m.get('name', ''),
@@ -318,7 +319,8 @@ def make_state():
     tunnels = []
     for x in tunnels_load():
         alive = proc_alive(x.get('pid', 0))
-        tunnels.append({'port': x['port'], 'target': x['target'], 'started': x.get('started', ''),
+        tunnels.append({'port': x['port'], 'target': x['target'],
+                        'started': (time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(x['ts'])) if x.get('ts') else x.get('started', '')),
                         'via': x.get('via', ''), 'alive': alive})
     cfg = load_cfg()
     return {'hub_ok': hub_ok, 'agents': agents, 'tunnels': tunnels,

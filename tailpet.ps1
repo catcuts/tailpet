@@ -334,7 +334,7 @@ function Do-Tunnel([string]$token, [string]$rport = '80', [string]$lport = '', [
         if ($proc.HasExited) { Write-Output "!! 隧道启动失败（exit $($proc.ExitCode)）— 检查机器在线与端口可达"; return }
     }
     $tunnels = @(Get-Tunnels)
-    $tunnels += [pscustomobject]@{ port = $lport; pid = $proc.Id; target = "$token -> $target"; via = $viaDesc; key = $dedupKey; started = (Get-Date -Format 'MM-dd HH:mm') }
+    $tunnels += [pscustomobject]@{ port = $lport; pid = $proc.Id; target = "$token -> $target"; via = $viaDesc; key = $dedupKey; started = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'); ts = [DateTimeOffset]::Now.ToUnixTimeSeconds() }
     Set-Tunnels $tunnels
     $scheme = if ($rport -eq '443') { 'https' } else { 'http' }
     $url = "${scheme}://127.0.0.1:$lport"
