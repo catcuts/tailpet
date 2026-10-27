@@ -239,6 +239,11 @@ def agent_add(name):
             fp = os.path.join(cache, extra)
             if os.path.exists(fp):
                 z.write(fp, extra)
+    cfg = load_cfg()
+    pend = [x for x in cfg.get('pending', []) if x != name]
+    pend.append(name)
+    cfg['pending'] = pend
+    save_cfg(cfg)
     return {'ok': True, 'zip': zp, 'aid': aid, 'reused': reused}
 
 def spawn_tunnel(name, rport, lport, target):
@@ -347,6 +352,15 @@ def make_state():
                            'online': now - ls < 90, 'ver': m.get('ver') or '-',
                            'seen': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(ls)) if ls else '-',
                            'ip': m.get('ip') or ''})
+    _metas_names = set((m.get('name') or '') for m in (metas or {}).values())
+    _cfg = load_cfg()
+    _pend = [x for x in _cfg.get('pending', []) if x and x not in _metas_names]
+    if _pend != _cfg.get('pending', []):
+        _cfg['pending'] = _pend
+        save_cfg(_cfg)
+    for pname in _pend:
+        agents.append({'id': 'pend:' + pname, 'name': pname, 'type': 'agent', 'pending': True,
+                       'online': None, 'ver': '-', 'seen': '-', 'ip': '', 'jump': ''})
     for m in reg_load():
         agents.append({'id': 'reg:' + m.get('name', ''), 'name': m.get('name', ''),
                        'type': m.get('type', 'pub'), 'online': None, 'ver': '-',
@@ -441,6 +455,7 @@ input[type=checkbox]{accent-color:var(--pri);width:15px;height:15px;cursor:point
 .tpb.ag{background:var(--pri-soft);color:var(--pri)}
 .tpb.pub{background:#f1f5f9;color:#475569}
 .tpb.lan{background:#fffbeb;color:#b45309}
+.tpb.pend{background:#fff7ed;color:#c2410c}
 button.danger{background:var(--bad);border-color:var(--bad);color:#fff;box-shadow:0 1px 2px rgba(225,29,72,.25)}
 button.danger:hover{background:#be123c}
 #askModal .mbox{max-width:420px}
@@ -658,7 +673,7 @@ function renderAgents(){const list=agFiltered();
  document.getElementById('agCnt').textContent=`${list.length}/${AG.length} 台`;
  const tb=document.querySelector('#agents tbody');tb.innerHTML=list.length?'':'<tr><td colspan="8" class="hint">（无匹配机器）</td></tr>';
  for(const a of list){const tr=document.createElement('tr');
-  const isAg=(a.type||'agent')==='agent';
+  const isAg=(a.type||'agent')==='agent'&&!a.pending;
   const typeBadge=a.type==='lan'?'<span class="tpb lan">lan</span>':a.type==='pub'?'<span class="tpb pub">pub</span>':'<span class="tpb ag">agent</span>';
   const ops=isAg?`
    <button onclick="openCmd('${esc(a.name)}','${a.id}')">执行命令</button>
@@ -669,7 +684,7 @@ function renderAgents(){const list=agFiltered();
   tr.innerHTML=`<td><input type="checkbox" ${SELA.has(a.name)?'checked':''} onchange="selA('${esc(a.name)}',this.checked)"></td>
   <td><span class="nmrow"><span class="nm" onclick="editNm(this,'${esc(a.name)}','${a.id}')" title="点击改名">${escHtml(a.name)}</span><button class="cp" title="复制名称" onclick="copyName('${esc(a.name)}',this)">⧉</button></span></td>
   <td>${typeBadge}</td>
-  <td>${a.online===null?'<span class="hint">—</span>':`<span class="badge ${a.online?'on':'off'}"><span class="d"></span>${a.online?'在线':'离线'}</span>`}</td>
+  <td>${a.pending?'<span class="tpb pend">待部署</span>':a.online===null?'<span class="hint">—</span>':`<span class="badge ${a.online?'on':'off'}"><span class="d"></span>${a.online?'在线':'离线'}</span>`}</td>
   <td><span class="ver ${a.ver!=='-'?'v2':''}">${a.ver}</span></td><td class="kv">${a.seen}</td><td class="kv">${a.ip}${a.jump?' <span class="hint">(经 '+escHtml(a.jump)+')</span>':''}</td>
   <td style="white-space:nowrap">${ops}
    <button class="warn" onclick="rmAgent('${esc(a.name)}')">删除</button></td>`;tb.appendChild(tr)}}
@@ -762,7 +777,7 @@ async function addAgent(){const n=await ask({title:'新增机器',input:true,def
  genPkg(name,true)}
 async function genPkgFor(name){if(!await ask({title:'生成安装包',msg:`确认为【${name}】生成/更新安装包并下载？\n（已部署的同名站点 = 同 id 升级包，不断线）`}))return;genPkg(name,false)}
 async function genPkg(name,fresh){toast('生成中…');const r=await api('/api/agent-add',{name});
- if(r.ok){toast('已生成'+(r.reused?'（复用 id '+r.aid+'）':''));location.href='/api/download?path='+encodeURIComponent(r.zip);refresh()}else toast('失败: '+r.err)}
+ if(r.ok){toast('安装包已下载——拷到目标机解压运行 Add-Agent.bat，部署后本条变为在线（当前显示 待部署）',6000);location.href='/api/download?path='+encodeURIComponent(r.zip);refresh()}else toast('失败: '+r.err)}
 async function rmAgent(name){if(!await ask({title:`删除 ${name}`,danger:true,msg:`确认删除机器【${name}】？\n\n注意：仅删除 hub 注册（该机 agent 若仍在运行会自动重新注册；彻底移除需在该机卸载 agent）。`}))return;
  const r=await api('/api/agent-rm',{name});toast(r.ok?'已删除: '+name:'失败: '+r.err);refresh()}
 
@@ -893,6 +908,11 @@ class Handler(BaseHTTPRequestHandler):
                 if any(m.get('name') == name for m in regs):
                     reg_save([m for m in regs if m.get('name') != name])
                     return self._json({'ok': True, 'kind': 'registry'})
+                _cfg = load_cfg()
+                if name in _cfg.get('pending', []):
+                    _cfg['pending'] = [x for x in _cfg['pending'] if x != name]
+                    save_cfg(_cfg)
+                    return self._json({'ok': True, 'kind': 'pending'})
                 a = agent_by_name(name)
                 if not a:
                     return self._json({'ok': False, 'err': '机器不存在'})
