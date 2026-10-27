@@ -494,7 +494,7 @@ footer{margin:8px 22px 22px;color:#94a3b8;font-size:11.5px;text-align:center}
 <div class="modal" id="docModal" onclick="if(event.target===this)closeModals()"><div class="mbox" style="max-width:720px">
  <div class="mhead"><span class="m">📄</span>说明书 · <span id="docName" style="color:var(--pri)"></span>
   <button class="x" onclick="closeModals()">✕</button></div>
- <div class="mbody" style="overflow:hidden;padding:0"><div class="docwrap">
+ <div class="mbody" style="overflow:hidden;padding:0 14px 14px"><div class="docwrap">
   <button class="docCopy" id="docCopyBtn" title="复制全部" onclick="copyDoc(this)">⧉</button>
   <pre id="docText" style="margin:0"></pre></div></div>
 </div></div>
