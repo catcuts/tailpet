@@ -388,9 +388,9 @@ footer{margin:8px 22px 22px;color:#94a3b8;font-size:11.5px;text-align:center}
 <div class="card"><div class="bar">
  <h3><span class="m">🔗</span>隧道管理</h3><span class="cnt" id="tCnt"></span><span class="spacer"></span>
  <input id="tFilter" placeholder="过滤端口/目标…" style="width:150px">
- <button class="warn" id="batchStop" style="display:none" onclick="stopSelTunnels()">停止所选</button>
  <button class="pri" onclick="openTunModal()">＋ 新建隧道</button>
- <button class="warn" onclick="stopAllTunnels()">全部停止</button>
+ <button class="warn" id="batchStop" style="display:none" onclick="stopSelTunnels()">停止所选</button>
+ <button class="warn" id="stopAllBtn" onclick="stopAllTunnels()">全部停止</button>
 </div>
 <table id="tunnels"><thead><tr><th style="width:30px"><input type="checkbox" id="ckAllT" onchange="toggleAllT(this.checked)"></th><th>本地端口</th><th>机器名称</th><th>中转</th><th>目标</th><th>状态</th><th>建立时间</th><th>操作</th></tr></thead><tbody></tbody></table>
 </div>
@@ -460,9 +460,10 @@ function selT(p,v){v?SELT.add(String(p)):SELT.delete(String(p));updateSelUI()}
 function toggleAllA(v){agFiltered().forEach(a=>v?SELA.add(a.name):SELA.delete(a.name));renderAgents();updateSelUI()}
 function toggleAllT(v){tFiltered().forEach(t=>v?SELT.add(String(t.port)):SELT.delete(String(t.port)));renderTunnels();updateSelUI()}
 function updateSelUI(){
- const bRm=document.getElementById('batchRm'),bSt=document.getElementById('batchStop');
+ const bRm=document.getElementById('batchRm'),bSt=document.getElementById('batchStop'),bAll=document.getElementById('stopAllBtn');
  bRm.style.display=SELA.size?'':'none';bRm.textContent=`删除所选 (${SELA.size})`;
- bSt.style.display=SELT.size?'':'none';bSt.textContent=`停止所选 (${SELT.size})`}
+ bSt.style.display=SELT.size?'':'none';bSt.textContent=`停止所选 (${SELT.size})`;
+ if(bAll)bAll.style.display=SELT.size?'none':''}
 async function rmAgents(){const names=[...SELA];if(!names.length)return;
  if(!await ask({title:`删除 ${names.length} 台机器`,danger:true,msg:`确认删除所选 ${names.length} 台机器？\n\n${names.join('、')}\n\n注意：仅删除 hub 注册（agent 若仍在运行会自动重新注册；彻底移除需在目标机卸载）。`}))return;
  for(const n of names){await api('/api/agent-rm',{name:n})}
