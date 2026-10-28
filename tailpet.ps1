@@ -435,24 +435,24 @@ function Do-AgentAdd([string]$name) {
     }
 }
 
-function Do-GenSshdC {
-    # gen-sshd-c：生成 C 机 OpenSSH 服务端迷你安装包（install-sshd.bat + OpenSSH-Win64.zip）
-    # 纯静态零绑定：不含 hub/id/token/IP/公钥，拷到任意 C 解压双击即装，装完 B 可 ssh-p 密码直连
+function Do-GenSshd {
+    # gen-sshd：生成 OpenSSH 服务端迷你安装包（install-sshd.bat + OpenSSH-Win64.zip）
+    # 纯静态零绑定，不限定拓扑角色——典型用于 B 内网的 C 机（装完 B 可 ssh-p 密码直连），任何需要 sshd 的 Windows 机均可复用
     $batFile = Join-Path $pkgDir 'bootstrap\install-sshd.bat'
     $sshZip = Join-Path (Join-Path (Join-Path $pkgDir 'bootstrap') 'cache') 'OpenSSH-Win64.zip'
     if (-not (Test-Path $batFile)) { Write-Output '!! 缺 bootstrap\install-sshd.bat（从开发仓同步安装副本）'; return }
     if (-not (Test-Path $sshZip)) { Write-Output '!! 缺 bootstrap\cache\OpenSSH-Win64.zip'; return }
-    $outZip = Join-Path $pkgDir 'out\sshd-c.zip'
+    $outZip = Join-Path $pkgDir 'out\sshd.zip'
     $tmpDir = Join-Path $env:TEMP ('sshdc-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
     New-Item -ItemType Directory -Force -Path $tmpDir | Out-Null
     Copy-Item $batFile (Join-Path $tmpDir 'install-sshd.bat')
     Copy-Item $sshZip (Join-Path $tmpDir 'OpenSSH-Win64.zip')
     Compress-Archive -Path @((Join-Path $tmpDir 'install-sshd.bat'), (Join-Path $tmpDir 'OpenSSH-Win64.zip')) -DestinationPath $outZip -Force
     Remove-Item $tmpDir -Recurse -Force
-    Write-Output "C 机 SSH 服务端迷你包已生成: $outZip"
-    Write-Output '  拷到 C 解压，双击 install-sshd.bat（自动提权，离线安装，不联网不绑定任何机器/IP/公钥）'
-    Write-Output '  装完不改动任何密码 —— SSH 密码 = C 现有 Windows 登录密码'
-    Write-Output '  C 侧自检: netstat -an | findstr ":22 "；B 侧验证: tailpet agent exec <B名> "ssh-p <密码> administrator@<C_IP> hostname"'
+    Write-Output "SSH 服务端迷你包已生成: $outZip"
+    Write-Output '  拷到目标机解压，双击 install-sshd.bat（自动提权，离线安装，不联网不绑定任何机器/IP/公钥）'
+    Write-Output '  装完不改动任何密码 —— SSH 密码 = 该机现有 Windows 登录密码'
+    Write-Output '  目标机自检: netstat -an | findstr ":22 "；验证: tailpet agent exec <B名> "ssh-p <密码> administrator@<目标机IP> hostname"（A 直连机器则本机 ssh 即可）'
 }
 
 function Get-AgentMetas {
@@ -1229,7 +1229,7 @@ function Build-PromptText($item, $jumpInfo) {
         $lines += ''
         $lines += '- **该机内网 C 机（密码模式，推荐）**: `tailpet agent exec ' + $item.Name + ' "ssh-p 密码 用户@C_IP 命令"` —— 走 plink 密码认证（keyscan 自动信任主机密钥），C 机零预装'
         $lines += '  公钥模式（C 已装该机公钥时）: `tailpet agent exec ' + $item.Name + ' "ssh-c 用户@C_IP 命令"`（公钥在 hub /metas 的 pubkey 字段）。'
-        $lines += '  C 机还没有 SSH 服务端时（一次性引导）: 迷你包 `tailpet gen-sshd-c` 生成，或直接用 agent 包里的 `install-sshd.bat + OpenSSH-Win64.zip`，拷到 C 解压双击即装（离线、零绑定、不改密码）；装完 SSH 密码 = C 现有 Windows 登录密码。'
+        $lines += '  C 机还没有 SSH 服务端时（一次性引导）: 迷你包 `tailpet gen-sshd` 生成，或直接用 agent 包里的 `install-sshd.bat + OpenSSH-Win64.zip`，拷到 C 解压双击即装（离线、零绑定、不改密码）；装完 SSH 密码 = C 现有 Windows 登录密码。'
         $lines += ''
         $lines += '- **Web 服务访问**: `tailpet tunnel ' + $item.Name + ' <服务端口>` 其中：'
         $lines += '  - <服务端口>指目标机上的端口（web/RDP 等任意 TCP）；'
@@ -1400,7 +1400,7 @@ function Show-Help {
         )),
         @('机器管理：', @(
             @('tailpet gen-prompt', '交互式生成连接信息（自动复制到剪贴板）'),
-            @('tailpet gen-sshd-c', '生成 C 机 SSH 服务端迷你包（拷去双击即装，密码模式前置）'),
+            @('tailpet gen-sshd', '生成 sshd 迷你安装包（拷去双击即装；典型用于 B 内网 C 机）'),
             @('tailpet machine list', '查看本地机器注册表'),
             @('tailpet machine add <名> <IP> [用户] [类型 pub|lan] [跳板名]', '注册机器'),
             @('tailpet machine remove <名>', '从注册表删除')
@@ -1498,7 +1498,7 @@ switch ($Cmd.ToLower()) {
         else { Write-Output 'usage: tailpet agent add [名] | rm <名> | list | exec <名> <命令...>' }
     }
     'gen-prompt'   { Do-GenPrompt }
-    'gen-sshd-c'   { Do-GenSshdC }
+    'gen-sshd'     { Do-GenSshd }
     'machine'      {
         $sub = "$($Rest[0])"
         switch ($sub) {

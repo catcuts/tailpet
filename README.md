@@ -79,7 +79,7 @@ tailpet agent list                        # agent 表（在线优先→按名排
 tailpet agent exec 公司B "ipconfig /all"   # 远程执行（经 hub 下发，非交互）
 tailpet agent exec 公司B "ssh-p 密码 root@192.168.38.202 uname -a"   # 操作 B 内网的 C 机（密码模式；C 机跑 sshd 即可，无需装 tailpet）
 tailpet agent exec 公司B "ssh-c root@192.168.38.202 uname -a"        # 公钥模式（C 已装 B 的公钥时）
-tailpet gen-sshd-c                        # 给没有 sshd 的 C 机：生成迷你安装包，拷去解压双击 install-sshd.bat 即装（离线/零绑定/不改密码）
+tailpet gen-sshd                         # 生成 sshd 迷你安装包：拷去解压双击 install-sshd.bat 即装（离线/零绑定/不改密码；典型用于 B 内网 C 机）
 tailpet file get 公司B C:\ProgramData\tailpet\spool\out.log   # 取回该机文件（大输出先落盘再取）
 tailpet file put 公司B 本地文件 [该机目标路径]                 # 推文件到该机（hub 分块中转，异步）
 tailpet ssh 公司B "hostname"               # 同上（agent 机自动走 hub）
