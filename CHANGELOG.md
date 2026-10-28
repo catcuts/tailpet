@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.0.1 (2026-10-28)
+
+### C 机 SSH 服务端一键引导（ssh-p 密码模式的前置条件补齐）
+- `bootstrap/install-sshd.bat`：纯静态零绑定（无 hub/token/IP/公钥）——自提权（双击友好）→ 解压同目录 OpenSSH-Win64.zip 到 %ProgramFiles%\OpenSSH → 官方 install-sshd.ps1 → 补防火墙放行 22（官方脚本不建规则）→ sshd 设自启并启动（官方脚本留 Manual）→ netstat 自检回显；全离线不联网，2008 R2～Win11 一条路径
+- 密码策略：不改任何账号密码——SSH 密码 = 该账号现有 Windows 登录密码；空密码账号本就无法网络登录（脚本末尾给出 `net user administrator *` 引导）
+- `tailpet gen-sshd-c`：生成 C 机迷你安装包 `out\sshd-c.zip`（install-sshd.bat + OpenSSH-Win64.zip，~5.4MB），拷到 C 解压双击即装
+- agent 包（agent add）同步内嵌 install-sshd.bat；gen-prompt 的 agent 说明补 C 机引导条目
+
 ## v2.0.0 (2026-10-20)
 
 架构换轨：headscale / tailscale / WSL / 目标机 sshd 全部退役，改为 **hub（纯标准库 Python）+ 出站长轮询 agent + TCP 中继**。目标机零入站、零安装，兼容 PowerShell 2.0（Server 2008 R2）。
