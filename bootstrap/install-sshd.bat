@@ -5,11 +5,21 @@ rem Binds nothing: no hub/token/IP/publickey. Password auth uses each account's
 rem EXISTING Windows login password - this script never changes any password.
 setlocal EnableExtensions
 
+rem absolute powershell path: PATH can be broken inside elevated contexts
+set "PWSH=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
+if not exist "%PWSH%" (
+    echo [ERROR] PowerShell not found: %PWSH%
+    echo Install PowerShell first, then re-run this script.
+    echo.
+    pause
+    exit /b 1
+)
+
 rem ---- self-elevate (double-click friendly) ----
 net session >nul 2>&1
 if %errorlevel% neq 0 (
     echo Requesting administrator privileges...
-    powershell -NoProfile -Command "try { Start-Process -FilePath '%~f0' -Verb RunAs } catch { Write-Host 'UAC declined - right-click and Run as administrator'; pause }"
+    "%PWSH%" -NoProfile -Command "try { Start-Process -FilePath '%~f0' -Verb RunAs } catch { Write-Host 'UAC declined - right-click and Run as administrator'; pause }"
     exit /b
 )
 
@@ -39,7 +49,7 @@ goto install
 if exist "%OPENSSH_DIR%\sshd.exe" goto install
 echo Extracting OpenSSH-Win64.zip ...
 if not exist "%OPENSSH_DIR%" mkdir "%OPENSSH_DIR%"
-powershell -NoProfile -Command "$s = New-Object -ComObject Shell.Application; $s.NameSpace('%OPENSSH_DIR%').CopyHere($s.NameSpace('%ZIP_SRC%').Items(), 16)"
+"%PWSH%" -NoProfile -Command "$s = New-Object -ComObject Shell.Application; $s.NameSpace('%OPENSSH_DIR%').CopyHere($s.NameSpace('%ZIP_SRC%').Items(), 16)"
 rem Shell COM CopyHere is async - poll for payload
 set /a tries=0
 :waitloop
@@ -55,7 +65,7 @@ exit /b 1
 :install
 echo Payload ready.
 pushd "%OPENSSH_DIR%"
-powershell -NoProfile -ExecutionPolicy Bypass -File ".\install-sshd.ps1"
+"%PWSH%" -NoProfile -ExecutionPolicy Bypass -File ".\install-sshd.ps1"
 set "INS_RC=%errorlevel%"
 popd
 if not "%INS_RC%"=="0" echo [WARN] install-sshd.ps1 exited %INS_RC% - continuing.
