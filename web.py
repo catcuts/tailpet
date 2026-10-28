@@ -793,7 +793,8 @@ document.getElementById('tFilter').addEventListener('input',renderTunnels);
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModals()});
 let _askRes=null,_askVal=false;
 function askResolve(ok){const m=document.getElementById('askModal');m.classList.remove('show');
- if(_askRes){const r=_askRes;_askRes=null;r(ok)}}
+ if(_askRes){const r=_askRes;_askRes=null;
+  r(ok?(_askVal?document.getElementById('askInput').value.trim():true):(_askVal?null:false))}}
 function ask({title,msg,danger,input,def}){
  return new Promise(res=>{_askRes=res;_askVal=!!input;
   document.getElementById('askTitle').textContent=title||'确认';
@@ -980,7 +981,11 @@ def main():
                 port = int(last)
         if not last:
             port = free_port()
-    cfg['port'] = port
+            if 'port' not in cfg:
+                cfg['port'] = port  # 回退不覆盖既有书签端口
+    else:
+        cfg['port'] = port
+    cfg['lastPort'] = port
     if bg:
         cfg['pid'] = os.getpid()
     save_cfg(cfg)
