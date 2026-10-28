@@ -855,9 +855,17 @@ class Handler(BaseHTTPRequestHandler):
             if not allowed or not os.path.isfile(path):
                 return self._json({'ok': False, 'err': 'forbidden or missing'}, 403)
             data = open(path, 'rb').read()
+            base = os.path.basename(path)
+            try:
+                base.encode('ascii')
+                cd = 'attachment; filename="%s"' % base
+            except UnicodeEncodeError:
+                # HTTP 头只允许 latin-1：中文名走 RFC 5987（filename*=UTF-8''），另给 ASCII 回退名
+                from urllib.parse import quote
+                cd = "attachment; filename=\"agent-package.zip\"; filename*=UTF-8''%s" % quote(base)
             self.send_response(200)
             self.send_header('Content-Type', 'application/octet-stream')
-            self.send_header('Content-Disposition', 'attachment; filename="%s"' % os.path.basename(path))
+            self.send_header('Content-Disposition', cd)
             self.send_header('Content-Length', str(len(data)))
             self.end_headers()
             self.wfile.write(data)
