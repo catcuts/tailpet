@@ -3,10 +3,10 @@
 ## v2.0.1 (2026-10-28)
 
 ### C 机 SSH 服务端一键引导（ssh-p 密码模式的前置条件补齐）
-- `bootstrap/install-sshd.bat`：纯静态零绑定（无 hub/token/IP/公钥）——自提权（双击友好）→ 解压同目录 OpenSSH-Win64.zip 到 %ProgramFiles%\OpenSSH → 官方 install-sshd.ps1 → 补防火墙放行 22（官方脚本不建规则）→ sshd 设自启并启动（官方脚本留 Manual）→ netstat 自检回显；全离线不联网，2008 R2～Win11 一条路径
+- `bootstrap/install-sshd.bat`：纯静态零绑定（无 hub/token/IP/公钥）——自提权（双击友好）→ 解压同目录 OpenSSH-Win64.zip 到 %ProgramFiles%\OpenSSH → 官方 install-sshd.ps1 → 补防火墙放行 22（官方脚本不建规则）→ sshd 设自启并启动（官方脚本留 Manual）→ netstat 自检回显；全离线不联网，2008 R2～Win11 一条路径；PowerShell 一律绝对路径引用（实战：部分机器提权后 PATH 缺失，裸 `powershell` 报"不是内部或外部命令"）；解压后双布局识别（zip 内一级 OpenSSH-Win64/ 目录 → 实落 <target>\OpenSSH-Win64\，从实际 payload 目录跑安装，超时时打印目标目录内容辅助诊断）
 - 密码策略：不改任何账号密码——SSH 密码 = 该账号现有 Windows 登录密码；空密码账号本就无法网络登录（脚本末尾给出 `net user administrator *` 引导）
 - `tailpet gen-sshd`：生成 sshd 迷你安装包 `out\sshd.zip`（install-sshd.bat + OpenSSH-Win64.zip，~5.4MB），拷到目标机解压双击即装——命令与产物不绑定拓扑角色，任何需要 SSH 服务端的 Windows 机均可用（典型场景：B 内网的 C 机）
-- agent 包（agent add）同步内嵌 install-sshd.bat；gen-prompt 的 agent 说明补 C 机引导条目
+- agent 包同步内嵌 install-sshd.bat——CLI `agent add` 与 web 控制台"生成安装包"两个独立打包入口都带上；gen-prompt 的 agent 说明补 C 机引导条目
 
 ## v2.0.0 (2026-10-20)
 
