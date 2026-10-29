@@ -15,14 +15,6 @@ if not exist "%PWSH%" (
     exit /b 1
 )
 
-rem ---- self-elevate (double-click friendly) ----
-net session >nul 2>&1
-if %errorlevel% neq 0 (
-    echo Requesting administrator privileges...
-    "%PWSH%" -NoProfile -Command "try { Start-Process -FilePath '%~f0' -Verb RunAs } catch { Write-Host 'UAC declined - right-click and Run as administrator'; pause }"
-    exit /b
-)
-
 set "OPENSSH_DIR=%ProgramFiles%\OpenSSH"
 set "ZIP_SRC=%~dp0OpenSSH-Win64.zip"
 
@@ -39,32 +31,44 @@ pause
 exit /b 1
 
 :copydir
-if exist "%OPENSSH_DIR%\sshd.exe" goto install
+if exist "%OPENSSH_DIR%\sshd.exe" goto have_payload
 echo Found extracted OpenSSH-Win64 beside script - copying...
 if not exist "%OPENSSH_DIR%" mkdir "%OPENSSH_DIR%"
 xcopy "%~dp0OpenSSH-Win64\*" "%OPENSSH_DIR%\" /e /i /y >nul
-goto install
+goto have_payload
 
 :extract
-if exist "%OPENSSH_DIR%\sshd.exe" goto install
+rem zip may store files at top level or under an OpenSSH-Win64 folder - accept both
+if exist "%OPENSSH_DIR%\sshd.exe" goto have_payload
+if exist "%OPENSSH_DIR%\OpenSSH-Win64\sshd.exe" goto have_payload
 echo Extracting OpenSSH-Win64.zip ...
 if not exist "%OPENSSH_DIR%" mkdir "%OPENSSH_DIR%"
 "%PWSH%" -NoProfile -Command "$s = New-Object -ComObject Shell.Application; $s.NameSpace('%OPENSSH_DIR%').CopyHere($s.NameSpace('%ZIP_SRC%').Items(), 16)"
 rem Shell COM CopyHere is async - poll for payload
 set /a tries=0
 :waitloop
-if exist "%OPENSSH_DIR%\sshd.exe" goto install
+if exist "%OPENSSH_DIR%\sshd.exe" goto have_payload
+if exist "%OPENSSH_DIR%\OpenSSH-Win64\sshd.exe" goto have_payload
 ping -n 3 127.0.0.1 >nul
 set /a tries+=1
 if %tries% lss 90 goto waitloop
-echo [ERROR] extraction timed out.
+echo [ERROR] extraction timed out. Target dir contents:
+dir /b "%OPENSSH_DIR%" 2>nul
 echo.
 pause
 exit /b 1
 
+:have_payload
+if exist "%OPENSSH_DIR%\OpenSSH-Win64\sshd.exe" (
+    set "PAYLOAD=%OPENSSH_DIR%\OpenSSH-Win64"
+) else (
+    set "PAYLOAD=%OPENSSH_DIR%"
+)
+goto install
+
 :install
-echo Payload ready.
-pushd "%OPENSSH_DIR%"
+echo Payload ready: %PAYLOAD%
+pushd "%PAYLOAD%"
 "%PWSH%" -NoProfile -ExecutionPolicy Bypass -File ".\install-sshd.ps1"
 set "INS_RC=%errorlevel%"
 popd
