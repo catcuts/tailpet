@@ -241,7 +241,8 @@ function Get-Tunnels {
 }
 
 function Set-Tunnels($tunnels) {
-    $tunnels | ConvertTo-Json -Depth 3 | Set-Content $TunnelsFile -Encoding UTF8
+    # -InputObject 保数组：管道输入会把单元素数组解包成裸对象（坑 #12），web.py 读裸对象会炸
+    ConvertTo-Json -InputObject @($tunnels) -Depth 3 | Set-Content $TunnelsFile -Encoding UTF8
 }
 
 function Get-FreePort {
@@ -1465,11 +1466,17 @@ switch ($Cmd.ToLower()) {
     }
     'web-stop'   {
         $cfg = Join-Path $pkgDir 'web.json'
-        if (-not (Test-Path $cfg)) { Write-Output '(无后台控制台记录)'; return }
-        try { $old = Get-Content $cfg -Raw -Encoding UTF8 | ConvertFrom-Json } catch { $old = $null }
+        try { $old = if (Test-Path $cfg) { Get-Content $cfg -Raw -Encoding UTF8 | ConvertFrom-Json } catch { $null } } catch { $old = $null }
+        $killed = 0
         if ($old -and $old.pid) {
-            try { Stop-Process -Id ([int]$old.pid) -Force -ErrorAction Stop; Write-Output "已停止 (pid $($old.pid))" } catch { Write-Output "进程已不在（pid $($old.pid)）" }
-        } else { Write-Output '(web.json 无 pid——前台实例请用 Ctrl+C)' }
+            try { Stop-Process -Id ([int]$old.pid) -Force -ErrorAction Stop; $killed++; Write-Output "已停止 (pid $($old.pid))" } catch { Write-Output "进程已不在（pid $($old.pid)）" }
+        } elseif (-not (Test-Path $cfg)) { Write-Output '(无后台控制台记录)' }
+        # 孤儿清扫：前台起的/换过 pid 的 web.py 残留会占住端口且不在册（曾致"hub 不可达"空页面），按命令行特征补杀
+        $orphans = @(Get-CimInstance Win32_Process -Filter "Name like 'python%'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*tailpet*web.py*' -and "$($_.ProcessId)" -ne "$PID" })
+        foreach ($o in $orphans) {
+            try { Stop-Process -Id ([int]$o.ProcessId) -Force -ErrorAction Stop; $killed++; Write-Output "已清孤儿 (pid $($o.ProcessId))" } catch { }
+        }
+        if ($killed -eq 0 -and $orphans.Count -eq 0 -and (Test-Path $cfg)) { Write-Output '(没有在运行的控制台实例)' }
     }
     'file'       {
         $sub = "$($Rest[0])"
